@@ -4,7 +4,7 @@
 
 ## 自动构建
 
-- 分支推送及 PR 修改 JoplinU 目录或 workflow 时自动检查和构建。
+- dev 推送及 PR 修改 JoplinU 目录或 workflow 时自动检查和构建，避免同一开发分支的 push / PR 重复构建。
 - `v*` 标签触发构建；`workflow_dispatch` 支持手动运行。
 - PR 和普通开发分支产物不使用正式签名密钥。
 - `dev` 分支与 `v*` 标签的 push，在完整 Secrets 已配置时自动签名。手动运行勾选 `sign` 也会尝试使用已配置密钥。

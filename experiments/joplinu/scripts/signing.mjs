@@ -66,7 +66,7 @@ export async function signRpm(file, publicKeyFile, env = process.env) {
 			'--define', `_gpg_name ${fingerprint}`,
 			'--define', `_gpg_path ${gnupg}`,
 			'--define', '_gpg_digest_algo sha256',
-			'--define', `__gpg_sign_cmd /usr/bin/gpg --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file ${pass} --local-user %{_gpg_name} --detach-sign --output %{__signature_filename} %{__plaintext_filename}`,
+			'--define', `__gpg_sign_cmd /usr/bin/gpg --batch --no-verbose --no-armor --pinentry-mode loopback --passphrase-file ${pass} --digest-algo SHA256 --local-user %{_gpg_name} --detach-sign --output %{__signature_filename} %{__plaintext_filename}`,
 			'--addsign', file,
 		], { env: commandEnv });
 		const publicKey = run('gpg', ['--batch', '--armor', '--export', fingerprint], { env: commandEnv });
@@ -74,7 +74,8 @@ export async function signRpm(file, publicKeyFile, env = process.env) {
 		const database = join(directory, 'rpmdb');
 		await mkdir(database);
 		run('rpmkeys', ['--dbpath', database, '--import', publicKeyFile]);
-		run('rpmkeys', ['--dbpath', database, '--checksig', file]);
+		const verification = run('rpmkeys', ['--dbpath', database, '--checksig', file], { env: { ...process.env, LC_ALL: 'C' } }).toString();
+		if (!/signatures OK/.test(verification)) throw new Error('RPM signature verification did not confirm a signature');
 		return true;
 	} finally {
 		try { run('gpgconf', ['--homedir', gnupg, '--kill', 'gpg-agent']); } catch {}

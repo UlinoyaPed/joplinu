@@ -2,7 +2,7 @@ name: JoplinU RPM and APK
 
 on:
   push:
-    branches: ['**']
+    branches: ['dev']
     tags: ['v*']
     paths: ['experiments/joplinu/**', '.github/workflows/joplinu-*.yml']
   pull_request:
@@ -44,12 +44,14 @@ jobs:
           sudo apt-get install -y rpm gnupg xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
       - run: npm ci --ignore-scripts
       - run: node node_modules/electron/install.js
-      - name: Build and optionally sign RPM
+      - name: Build RPM
+        run: npm run desktop:package
+      - name: Collect and optionally sign RPM
         env:
           RPM_GPG_PRIVATE_KEY_BASE64: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_PRIVATE_KEY_BASE64 || '' }}
           RPM_GPG_KEY_ID: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_KEY_ID || '' }}
           RPM_GPG_PASSPHRASE: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_PASSPHRASE || '' }}
-        run: npm run build:rpm
+        run: node scripts/collect-rpm.mjs
       - name: Launch the packaged Electron application
         env:
           JOPLINU_ELECTRON_EXECUTABLE: ${{ github.workspace }}/experiments/joplinu/artifacts/desktop/linux-unpacked/joplinu
@@ -91,6 +93,9 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
