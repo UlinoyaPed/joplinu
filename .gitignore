@@ -74,6 +74,21 @@ docs/**/*.mustache
 packages/generator-joplin/generators/app/templates/script/publish/dist/
 
 # AUTO-GENERATED - EXCLUDED TYPESCRIPT BUILD
+experiments/joplinu/apps/playground/src/main.js
+experiments/joplinu/apps/playground/src/sample.js
+experiments/joplinu/packages/document/src/index.js
+experiments/joplinu/packages/editor/src/codemirror.js
+experiments/joplinu/packages/editor/src/prosemirror.js
+experiments/joplinu/packages/editor/src/rich-model.js
+experiments/joplinu/packages/markdown/src/index.js
+experiments/joplinu/playwright.config.js
+experiments/joplinu/tests/browser/editor.spec.js
+experiments/joplinu/tests/document.test.js
+experiments/joplinu/tests/markdown.test.js
+experiments/joplinu/tests/performance.test.js
+experiments/joplinu/tests/rich-model.test.js
+experiments/joplinu/vite.config.js
+experiments/joplinu/vitest.config.js
 packages/app-cli/app/LinkSelector.js
 packages/app-cli/app/ResourceServer.js
 packages/app-cli/app/app-gui.js
