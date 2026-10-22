@@ -1,15 +1,19 @@
 import { _electron as electron, expect } from '@playwright/test';
 import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { root } from './artifacts.mjs';
 
 const executablePath = process.env.JOPLINU_ELECTRON_EXECUTABLE;
-const flags = ['--no-sandbox', ...(process.env.JOPLINU_ELECTRON_HEADLESS ? ['--headless', '--ozone-platform=headless', '--disable-gpu'] : [])];
-const application = await electron.launch({
+const profile = await mkdtemp(join(tmpdir(), 'joplinu-electron-test-'));
+const flags = ['--no-sandbox', `--user-data-dir=${profile}`, ...(process.env.JOPLINU_ELECTRON_HEADLESS ? ['--headless', '--ozone-platform=headless', '--disable-gpu'] : [])];
+const options = {
 	args: executablePath ? flags : [...flags, join(root, 'apps/desktop')],
 	...(executablePath ? { executablePath } : {}),
-});
+};
+let application = await electron.launch(options);
 try {
+	expect(await application.evaluate(({ app }) => app.getPath('userData'))).toBe(profile);
 	const window = await application.firstWindow();
 	await expect(window.getByRole('tab', { name: '实时预览', exact: true })).toBeVisible();
 	await window.getByRole('tab', { name: '双列', exact: true }).click();
@@ -21,7 +25,13 @@ try {
 		return { contextIsolation, sandbox, nodeIntegration, webSecurity };
 	});
 	expect(preferences).toEqual({ contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true });
+	await window.getByLabel('笔记标题', { exact: true }).fill('SQLite 重启恢复验证');
+	await expect(window.locator('footer')).toContainText('已保存到本地 · SQLite');
 	await mkdir(join(root, 'test-results'), { recursive: true });
 	await window.screenshot({ path: join(root, 'test-results/electron.png') });
-	console.log('Electron window, packaged assets and renderer isolation verified');
-} finally { await application.close(); }
+	await application.close(); application = await electron.launch(options);
+	const reopened = await application.firstWindow();
+	await expect(reopened.getByLabel('笔记标题', { exact: true })).toHaveValue('SQLite 重启恢复验证');
+	await expect(reopened.locator('footer')).toContainText('已保存到本地 · SQLite');
+	console.log('Electron window, renderer isolation and actual SQLite restart recovery verified');
+} finally { await application.close(); await rm(profile, { recursive: true, force: true }); }

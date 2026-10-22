@@ -1,33 +1,32 @@
-# JoplinU 编辑器概念验证
+# JoplinU 本地笔记库
 
-独立开发目录，保留目标仓库原有 Joplin 工程。当前实现用于验证 Markdown / Y.Text / ProseMirror 之间的适配，并已加入 Electron 桌面壳和 Capacitor/Kotlin Android 壳；仍是会话内存原型。
+独立的 TypeScript / React 笔记应用，Electron 桌面与 Capacitor/Kotlin Android 共用四模式编辑器和笔记管理界面。旧 Joplin 工程只作设计参考，不参与构建。
 
 ```sh
 cd experiments/joplinu
-npm ci
+npm ci --ignore-scripts
 npm run dev
 ```
 
-打开 `http://localhost:5173`。四个视图共享同一份 Markdown。使用「双实例实验」可断开连接、分别编辑并重新连接，观察两个独立 Y.Doc 合并。导入替换当前实验文档且可撤销；「导出 Markdown」可保存原文。
+打开 `http://localhost:5173`。可新建多级文件夹与笔记，编辑、搜索、添加标签、移动到回收站、查看或恢复历史。在设置中调整主题 / 字体 / Markdown 渲染，并导入导出目录、明文或密码加密的完整备份。插件按截图要求暂不实现。
 
-**刷新或退出会丢失会话内容。尚无 SQLite、云同步、E2EE 或附件加载。请先导出保存。** 界面显示的是未持久化状态。
+桌面与 Android 通过受限原生接口使用 SQLite，浏览器预览使用 IndexedDB。只有数据库确认提交后才显示“已保存到本地”。读取损坏资料不会重置为空库；保存失败保留内存内容并提供导出。多窗口争写时拒绝过期版本，要求备份后重新打开，尚未实现窗口间自动协同。
+
+云同步尚未启用；加密备份不等于同步 E2EE。当前是开发版本，请保留独立备份。完整同步必须等待文档模型与真机输入验收通过。
 
 ```sh
-npm run build
-npm test
+npm run check
 # 默认使用 /usr/bin/chromium；其他安装位置可覆盖：
 PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm run test:browser
-# 构建后，同样的交互测试再对生产包执行：
-PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm run test:production
+# 原生打包：
+npm run build:rpm
+npm run build:apk
 ```
 
-CI 安装 Playwright Chromium 并通过环境变量选择可执行文件。测试包含 Markdown 原文保留、双向编辑、共享撤销、源码回退、表格局部修改、并发 / 乱序 / 重复 Yjs 更新、安全渲染与小屏布局。合成 composition 事件不能代替 Android 中文输入法真机测试。
+模块：`packages/document` 为权威 Y.Text，`editor` 为 CodeMirror / ProseMirror 适配，`markdown` 为安全渲染与位置映射，`library` 为目录 / 历史 / 备份控制器，`database` 为持久化端口，`crypto` 为独立备份加密，`platform` 为文件导出。业务逻辑不依赖旧 Joplin 服务。
 
-目录：`apps/desktop` 与 `apps/android` 为原生平台壳，`apps/playground` 为 React 实验 UI，`packages/document` 为 Yjs 权威状态，`packages/editor` 为 CodeMirror / ProseMirror 适配，`packages/markdown` 为解析、位置与安全渲染，`tests` 为自动化验证。
-
+- [本地笔记库的实际功能与限制](docs/local-library.md)
 - [RPM / APK 构建和签名 Secrets](docs/builds.md)
-- [架构决策、边界和安全设计](docs/architecture.md)
-- [分阶段计划和后续门槛](docs/implementation-plan.md)
-- [测试记录与限制](docs/validation.md)
-
-当前限制包括：Live Preview 尚无复杂块 widgets；富文本公式与未知语法使用源码回退，附件为占位；Shiki / Mermaid 未接入；结构化编辑存在保真拒绝路径；选区映射尚不覆盖所有语法；尚无正式平台发布、真实 OSS / S3 或 Android 真机测试。完整同步必须等待文档模型门槛通过。
+- [架构设计与依赖边界](docs/architecture.md)
+- [分阶段计划和门槛](docs/implementation-plan.md)
+- [验证记录](docs/validation.md)

@@ -1,6 +1,6 @@
 # JoplinU 架构决策与阶段边界
 
-状态：阶段 0 设计和阶段 1 浏览器技术原型；不是可用于真实笔记的发布版本。优先级：不丢失数据 > 同步正确性 > 编辑体验 > 平台一致性 > 性能与外观。
+状态：阶段 0 / 1 原型及本地笔记库开发版；尚未通过全部平台与同步发布门槛。优先级：不丢失数据 > 同步正确性 > 编辑体验 > 平台一致性 > 性能与外观。
 
 ## 仓库实查（2026-10-22）
 
@@ -28,7 +28,7 @@ flowchart TD
   Storage --> S3[独立 S3 Provider]
 ```
 
-当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。数据库、同步、加密和存储 Provider 仍是后续设计边界。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
+当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。新增 packages/library、database、core 和独立 backup crypto；同步和云存储 Provider 仍是后续设计边界。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
 
 业务核心不能依赖 Electron、Capacitor、DOM、SDK 或应用全局状态。编辑器可以依赖 DOM，Markdown 解析与 HTML 字符串生成不依赖浏览器。云 SDK 只能位于各自 Provider。跨进程调用使用逐项校验的白名单 IPC，禁止通用执行 / 任意文件路径代理。
 
@@ -52,7 +52,7 @@ Milkdown 是 ProseMirror 上的 Markdown 编辑框架，插件体系很有价值
 4. 重新解析候选源码，检查 ProseMirror 结构与目标事务相等；不等时拒绝提交，不改权威原文，并提供恢复草稿下载与源码回退。
 5. 检查提交时的原文基线，拒绝过期事务，再在单个 Yjs transaction 内倒序应用补丁。外部更新在视图内按结构差异替换，选区通过源码相对锚点重建。
 
-CommonMark / GFM 的标题、列表、任务属性、引用、标记、链接、代码、图片占位和表格可以投影。公式保持值和源码入口；富文本直接公式编辑、公式 NodeView 渲染、图片资源代理、触摸表格工具和上下文菜单尚未实现。引用式链接、HTML、脚注以及已识别的自定义扩展（例如 `:::`、`[[...]]`、`{{...}}`）作为不可编辑源码原子块保留，双击切换源码。未注册扩展不存在通用自动识别方法；接入扩展必须声明投影和回退策略，测试原文保留。
+CommonMark / GFM 的标题、列表、任务项、引用、标记、链接、代码、图片和表格可以投影。新增公式 NodeView 与公式弹窗、本地图片 broker、任务开关、表格行列工具和上下文菜单；这些能力继续通过重解析等价保护。引用式链接、HTML、脚注以及已识别的自定义扩展（例如 `:::`、`[[...]]`、`{{...}}`）作为不可编辑源码原子块保留，双击切换源码。未注册扩展不存在通用自动识别方法；接入扩展必须声明投影和回退策略，测试原文保留。
 
 局部序列化仍可能规范化同一修改块里的部分格式；不能宣称所有未编辑区域都逐字保留。普通文字快速路径与独立未修改块已经有逐字断言。段落拆分 / 合并、复杂嵌套结构、多步插件事务、富文本粘贴、空文档与多光标仍需扩大覆盖。失败草稿是额外恢复材料，不应覆盖原文，也不保证保留原始排版。
 
@@ -64,21 +64,23 @@ Chromium 合成 composition 事件只能验证路由和单次写入，不能证�
 
 ## ADR-004：渲染与资源安全
 
-统一管线为 remark-parse → GFM / math → remark-rehype → 资源和源码位置插件 → rehype-sanitize → trust=false 的 KaTeX → HTML。不启用原始 HTML 解析，危险 URI 被去除，外部图片和 file/data 资源不请求；合法附件也暂显示占位，之后由平台验证 vault/resource-id 后提供受控 Blob。自定义协议必须在平台注册并校验，不交给浏览器任意导航。
+统一管线为 remark-parse → GFM / math → remark-rehype → 资源和源码位置插件 → rehype-sanitize → trust=false 的 KaTeX → HTML。不启用原始 HTML 解析，危险 URI 被去除，外部图片和 file/data 资源不请求；合法本地附件仅保留 data-attachment 标识，显示层从已验证资料库解析为 Blob；SVG/HTML 等不作为活动文档嵌入。自定义协议必须在平台注册并校验，不交给浏览器任意导航。
 
-网页使用 CSP 禁止对象、表单和外部连接，脚本仅 self；样式允许编辑器必要的行内样式。链接在预览点击时只定位源码。数学解析设展开 / 大小上限，缓存最多八个结果，异步预览有版本取消保护。当前整篇 AST 渲染并未增量化，大文档富文本解析是已知风险。
+网页使用 CSP 禁止对象、表单和外部连接，脚本仅 self；样式允许编辑器必要的行内样式。笔记 / 附件内部链接由应用处理，普通预览内容点击定位源码。数学解析设展开 / 大小上限，缓存最多八个结果，异步预览有版本取消保护。当前整篇 AST 渲染并未增量化，大文档富文本解析是已知风险。
 
-Shiki 与 Mermaid 尚未加入原型，代码当前保留为安全文本。后续高亮按语言动态加载；Mermaid 使用 strict、安全 SVG 清洗与渲染隔离，不能直接信任生成 SVG 或开放图中 HTML / 点击回调。Live Preview 目前只做可见区域增量语法树 Decorations，块表格 / 图片 / 公式 widgets 后续单独实现并测量高度稳定性。
+Shiki 使用 JavaScript regex engine 和按需语言 / 主题，避免为 WASM 放宽 CSP；Mermaid 按需加载、串行渲染，启用 strict 和文字上限，输出再经 DOMPurify SVG 清洗，去除活动链接 / foreignObject / 外部资源。Live Preview 依据 Lezer 增量语法树建立 StateField 块替换，单独渲染表格、代码、公式、图片切片，光标进入后显示原文；全量 1 MiB 与中文真机高度稳定性仍须测量。
 
 实际依赖审计后将 Vitest 从 3.2 系列升级至 5.0.5（修复 mocker / tinypool 已知问题），KaTeX 从 0.16 系列升级至 0.19.0（修复 trust 限制受既有原型污染绕过的问题）。remark-math / rehype-katex 仍声明旧 KaTeX 范围，因此使用显式 overrides 统一到直接依赖版本，并以类型检查、数学安全测试和实际浏览器渲染验证兼容性，不能只强制版本而不运行验证。
 
-## ADR-005：SQLite 与平台壳（SQLite 未实现；最小平台壳已建立）
+## ADR-005：本地持久化与平台壳
 
-SQLite 接口返回 Promise、串行写队列。桌面数据库运行于主进程 / worker，renderer 不持有文件系统权限；Android 用 Kotlin SQLite 插件并使用 Android Keystore 保护凭据。本地事务同时写入 `document_updates`、本地提交记录和未来上传 outbox，再更新「已保存到本地」状态；持久化失败不得展示已保存。恢复先验证基线与更新校验，再重放 Yjs。阶段 1 只有会话内存，没有伪装为 SQLite 的 localStorage。
+为支持真实的目录、历史与设置流程，在完整同步门槛通过前先接入本地持久化。当前采用有界资料库聚合快照：权威 CRDT 状态、目录、元数据、设置、历史与附件在单个事务中提交，并以 revision CAS 拒绝过期窗口。串行写入完成后才更新“已保存”，写入期间产生的更改继续排队；失败保留内存与导出。读取失败不创建空库覆盖旧记录。此结构用于早期验证恢复，不冒充逐更新日志 / outbox。具体容量和恢复限制见 [local-library.md](local-library.md)。
 
-历史版本是加密 / 本地 Yjs 状态点和 Markdown 导出，不等同于进程内 UndoManager。迁移 schema 必须备份并可回滚；多窗口由统一文档服务分发更新，避免各窗口争写快照。全文索引仅存在本地，正文、标题、标签和组织信息均不上传明文。
+桌面使用主进程 node:sqlite 的 WAL / synchronous=FULL；renderer 只有带 frame / origin 校验的 read/write/check 白名单 IPC。Android 使用 Kotlin SQLite 事务和分片，避免 CursorWindow 的大行限制；浏览器预览用原子 IndexedDB，明确标示后端。SQLite 重开、进程强杀、拒绝过期写入和 Electron 实际重启已有自动测试；Android instrumentation 结果必须单独确认。
 
-为满足用户新增的 RPM / APK 构建要求，本轮提前建立最小平台壳，不改变文档模型验收门槛。Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，使用限定根目录的 joplinu 协议加载随包静态资源，拒绝外部导航、新窗口与权限请求；当前不暴露 preload 或 Node IPC。后续原生能力仍须经过类型化白名单。系统文件选择、拖放、附件授权和资源协议在平台层处理。Capacitor 只共享 React / 编辑器核心，不沿用旧 React Native app。Android WorkManager 只传输已加密且持久化的 outbox / inbox 字节；需要解锁密钥、运行 Yjs、完成合并的任务在前台引擎执行，不假设后台 JS 活跃。后台成功下载不等于已经合并。
+历史是持久化的原文快照，区别于会话 UndoManager。备份保留当前 Yjs 状态以恢复后继续合并，并可另行密码加密；本地 SQLite 仍是明文。多窗口当前通过拒绝过期快照保护，不宣称自动协同。完整同步前要迁移至分文档 / 附件表、document_updates、原子 outbox / inbox、FTS 索引及统一窗口文档服务，迁移必须先备份并可回滚。
+
+Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，限定 joplinu 协议的资源根目录并拒绝外部导航、新窗口与权限请求。Capacitor 共享 React 与文档核心，Kotlin 负责 SQLite；附件导出使用应用 cache 和受限 FileProvider。未来 Android WorkManager 只传输已加密且持久化的字节，合并需要前台文档引擎，不假设后台 JS 活跃。后台下载成功不等于已经合并。
 
 ## ADR-006：OSS / S3 统一语义（阶段 3，未实现）
 

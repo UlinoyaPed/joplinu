@@ -1,9 +1,12 @@
 import { EditorState, Selection, TextSelection, type Command } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
+import { EditorView, type NodeViewConstructor } from 'prosemirror-view';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap, toggleMark, setBlockType, wrapIn } from 'prosemirror-commands';
 import { wrapInList, splitListItem, liftListItem, sinkListItem } from 'prosemirror-schema-list';
-import { tableEditing, goToNextCell } from 'prosemirror-tables';
+import { tableEditing, goToNextCell, addRowAfter, addColumnAfter, deleteRow, deleteColumn } from 'prosemirror-tables';
+import katex from 'katex';
+import { visit } from 'unist-util-visit';
+import { parseMarkdown } from '../../markdown/src/index';
 import type { NoteDocument } from '../../document/src/index';
 import { projectMarkdown, planRichEdits, richSchema, sourceToRich, richToSource, richSerializer } from './rich-model';
 
@@ -24,7 +27,16 @@ const selectBoundary = (end: boolean): Command => (state, dispatch) => {
 	return true;
 };
 
-export function createRichEditor(parent: HTMLElement, note: NoteDocument, onError: (message: string, draft: string) => void, onSourceFallback: (offset: number) => void) {
+export interface MathEdit { value: string; from: number; to: number; display: boolean; baseline: string }
+export interface RichResources {
+	math?: boolean;
+	attachment?(id: string): { url: string; mime: string } | undefined;
+	openNote?(id: string): void;
+	openAttachment?(id: string): void;
+	editMath?(edit: MathEdit): void;
+}
+export function createRichEditor(parent: HTMLElement, note: NoteDocument, onError: (message: string, draft: string) => void, onSourceFallback: (offset: number) => void, initialResources: RichResources = {}) {
+	let resources = initialResources;
 	let projection = projectMarkdown(note.source);
 	let local = false;
 	const owner = {};
@@ -33,7 +45,49 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 		anchor: richToSource(projection, view.state.selection.anchor),
 		head: richToSource(projection, view.state.selection.head),
 	});
+	const nodeViews = (): Record<string, NodeViewConstructor> => {
+		const mathView: NodeViewConstructor = (node, _editor, getPos) => {
+			const display = node.type.name === 'math_block';
+			const dom = document.createElement(display ? 'div' : 'span'); dom.className = 'math-source'; dom.dataset.math = display ? 'block' : 'inline'; dom.contentEditable = 'false';
+			try { if (resources.math !== false) dom.innerHTML = katex.renderToString(String(node.attrs.value), { displayMode: display, trust: false, throwOnError: true, maxExpand: 100, maxSize: 20 }); else dom.textContent = String(node.attrs.value); }
+			catch { dom.textContent = String(node.attrs.value); dom.title = '公式有误，双击编辑'; }
+			dom.addEventListener('dblclick', event => {
+				if (!resources.editMath || note.isComposing) return;
+				event.preventDefault(); event.stopPropagation();
+				const pos = getPos(); if (pos === undefined) return;
+				const sourceOffset = richToSource(projection, pos);
+				visit(parseMarkdown(note.source), candidate => {
+					if ((candidate.type !== 'math' && candidate.type !== 'inlineMath') || !candidate.position) return;
+					const from = candidate.position.start.offset!; const to = candidate.position.end.offset!;
+					if (sourceOffset >= from && sourceOffset <= to) resources.editMath!({ value: candidate.value, from, to, display: candidate.type === 'math', baseline: note.source });
+				});
+			});
+			return { dom, ignoreMutation: () => true };
+		};
+		return {
+			math_block: mathView, inline_math: mathView,
+			image(node) {
+				const dom = document.createElement('span'); dom.className = 'rich-image'; dom.contentEditable = 'false';
+				const id = /^attachment:([a-zA-Z0-9-]+)$/.exec(String(node.attrs.src))?.[1]; const asset = id ? resources.attachment?.(id) : undefined;
+				if (asset && /^image\/(png|jpeg|gif|webp|avif)$/.test(asset.mime)) { const image = document.createElement('img'); image.src = asset.url; image.alt = String(node.attrs.alt ?? '图片'); dom.append(image); }
+				else { dom.className = 'image-placeholder'; dom.textContent = `▧ ${String(node.attrs.alt || '图片 / 附件')}`; }
+				if (id) dom.addEventListener('dblclick', event => { event.preventDefault(); resources.openAttachment?.(id); });
+				return { dom, ignoreMutation: () => true };
+			},
+			list_item(node, editor, getPos) {
+				const dom = document.createElement('li'); const contentDOM = document.createElement('div');
+				if (node.attrs.checked !== null) {
+					dom.dataset.checked = String(node.attrs.checked); dom.className = 'rich-task';
+					const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = Boolean(node.attrs.checked); checkbox.contentEditable = 'false'; checkbox.setAttribute('aria-label', '切换任务完成状态');
+					checkbox.addEventListener('change', () => { const pos = getPos(); if (pos !== undefined && !note.isComposing) editor.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, checked: checkbox.checked })); });
+					dom.append(checkbox);
+				}
+				dom.append(contentDOM); return { dom, contentDOM };
+			},
+		};
+	};
 	const view = new EditorView(parent, {
+		nodeViews: nodeViews(),
 		attributes: { 'aria-label': '富文本编辑器', role: 'textbox', 'aria-multiline': 'true', spellcheck: 'false' },
 		state: EditorState.create({
 			doc: projection.doc,
@@ -77,6 +131,13 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 			saveSelection();
 		},
 		handleDOMEvents: {
+			click(_view, event) {
+				const target = event.target as HTMLElement;
+				const noteLink = target.closest<HTMLElement>('[data-note]'); const attachment = target.closest<HTMLElement>('a[data-attachment]');
+				if (noteLink) { event.preventDefault(); resources.openNote?.(noteLink.dataset.note!); return true; }
+				if (attachment) { event.preventDefault(); resources.openAttachment?.(attachment.dataset.attachment!); return true; }
+				return false;
+			},
 			compositionstart() { note.beginComposition(owner); return false; },
 			compositionend() { setTimeout(() => note.endComposition(owner), 0); return false; },
 			beforeinput(_view, event) {
@@ -116,13 +177,27 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 	});
 	return {
 		view,
+		setResources(next: RichResources) { resources = next; view.setProps({ nodeViews: nodeViews() }); },
 		command(command: Command) { commandWithDomSelection(view, command); view.focus(); },
 		bold: toggleMark(richSchema.marks.strong!),
 		italic: toggleMark(richSchema.marks.em!),
+		strike: toggleMark(richSchema.marks.strike!),
 		heading: setBlockType(richSchema.nodes.heading!, { level: 2 }),
 		paragraph: setBlockType(richSchema.nodes.paragraph!),
-		list: wrapInList(richSchema.nodes.bullet_list!),
+		list: wrapInList(richSchema.nodes.bullet_list!, { tight: true }),
 		quote: wrapIn(richSchema.nodes.blockquote!),
+		code: setBlockType(richSchema.nodes.code_block!, { params: '' }),
+		task: ((state, dispatch) => {
+			const paragraph = richSchema.nodes.paragraph!.create(null, richSchema.text('任务'));
+			const list = richSchema.nodes.bullet_list!.create({ tight: true }, richSchema.nodes.list_item!.create({ checked: false }, paragraph));
+			dispatch?.(state.tr.replaceSelectionWith(list).scrollIntoView()); return true;
+		}) as Command,
+		table: ((state, dispatch) => {
+			const cell = (header: boolean, text: string) => richSchema.nodes[header ? 'table_header' : 'table_cell']!.create(null, richSchema.nodes.paragraph!.create(null, richSchema.text(text)));
+			const row = (header: boolean) => richSchema.nodes.table_row!.create(null, [cell(header, header ? '标题一' : '内容'), cell(header, header ? '标题二' : '内容')]);
+			dispatch?.(state.tr.replaceSelectionWith(richSchema.nodes.table!.create(null, [row(true), row(false)])).scrollIntoView()); return true;
+		}) as Command,
+		addRow: addRowAfter, addColumn: addColumnAfter, deleteRow, deleteColumn,
 		destroy() { saveSelection(); unsubscribe(); view.destroy(); note.endComposition(owner); },
 	};
 }

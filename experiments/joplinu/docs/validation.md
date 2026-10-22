@@ -1,6 +1,6 @@
 # 实际验证记录
 
-日期：2026-10-22。平台：本任务 Linux 云环境，Node 24.19.0 / npm 11.9.0，系统 Chromium，通过 Playwright 启动。结果仅描述这个原型，没有验证旧 Joplin 完整工程或发布安装包。
+日期：2026-10-22。平台：本任务 Linux 云环境，Node 24.19.0 / npm 11.9.0，系统 Chromium，通过 Playwright 启动。早期原型与后续本地笔记库记录分列；没有验证旧 Joplin 完整工程。最新范围与结果见下方“本地笔记库增量”。
 
 ## 已执行
 
@@ -58,3 +58,19 @@ Vitest 在当前机器构建含中文、标题、段落与加粗的 Markdown，�
 新增 4 项 Node packaging-helper 测试，覆盖 Electron 资源路径越界、部分签名配置拒绝、PR 上下文禁用正式密钥和 unsigned APK 字节保留。Capacitor sync 已发现 filesystem / share 两个实际插件，Kotlin Activity 和 SDK / Gradle 版本纳入构建。新增运行时许可证清单，构建资源可离线加载。
 
 Electron 开发与 linux-unpacked 程序均通过 Playwright 实际启动；测试进程在此云环境使用 headless / no-sandbox，生产启动器没有添加这些测试参数。RPM / APK 的 CI 同时运行临时密钥真实签名验签，测试副本不会作为正式产物发布。详见 [构建与签名](builds.md)。
+
+## 本地笔记库增量（2026-10-22）
+
+本轮以截图功能与文件夹管理为范围，新增有界 SQLite / IndexedDB 持久化、目录 / 搜索 / 标签 / 回收站、设置、历史、附件、完整备份、密码加密备份、实际 Shiki / Mermaid、富文本公式弹窗 / 任务开关 / 表格工具和实时预览块 widgets。上方早期原型中“内存会话”“未接入数据库 / 附件 / Shiki / Mermaid”的描述属于先前提交状态，已由本节和 [local-library.md](local-library.md) 更新。
+
+- 严格 TypeScript + Vite production build 通过；代码与图表依赖按需分块，仍有较大 chunk 提示。
+- Vitest 51 / 51：包括存储失败、保存中继续编辑、过期窗口、Yjs 重开与恢复、目录 / 引用导入、完整备份 / ZIP、认证加密错误与篡改拒绝，以及表格结构转换的新增回归。
+- Node packaging tests 7 / 7：其中 3 项直接操作真实 SQLite，覆盖重开、SIGKILL 后恢复、过期 / 无效 / 超限写入；不是用内存 mock 证明 SQLite。其余是既有路径与签名边界。
+- Chromium 交互：开发 21 / 21、production 21 / 21。新增目录 / 搜索 / 移动 / 回收站、持久设置与历史、实际 Mermaid / Shiki、附件、恢复备份、过期窗口与恢复导出、移动设置分类、富文本表格 / 任务 / 公式、内链与 Live Preview 块。
+- Electron 在隔离临时 profile 中实际启动，检查 sandbox / contextIsolation / Node 隔离，编辑后退出再启动读取 SQLite；CI 还会对打包后的程序运行同一测试。
+- npm audit 报告 0 项已知漏洞；不等同于完整安全审计。
+- workflow 通过 actionlint。新增 Android 35 模拟器 instrumentation 验证真实 WebView / Kotlin / SQLite；成功与否以本提交 CI 为准，不以源码存在代替运行。
+
+修复了两项实际结构转换问题：新建表格的首行需要映射为 table_header；表格 serializer 末尾换行与保留原文换行叠加会投影出额外空段，现以单独回归验证。发生不等价转换时仍保留原文并提供草稿，没有删除安全检查。
+
+当前限制：聚合快照容量 40 MiB、当前全文搜索是本地内存缓存，不是 SQLite FTS；窗口争写会拒绝并要求备份后重开，不是自动协同；云同步 / 同步 E2EE / 后台任务未实现；真实中文 IME、完整双语、Windows/macOS 与 1 MiB 性能门槛仍开放。独立备份密码丢失无法恢复。

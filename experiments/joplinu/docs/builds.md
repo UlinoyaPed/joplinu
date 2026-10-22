@@ -1,6 +1,6 @@
 # RPM / APK 构建与签名
 
-构建入口是 `.github/workflows/joplinu-build.yml`，调用独立检查 workflow 后并行构建 Electron Linux x64 RPM 和 Capacitor Android APK。它不依赖旧 Joplin 构建工程。当前打包的是编辑器原型，应用内仍明确显示会话未持久化；SQLite、云同步和 E2EE 尚未接入，安装包不代表这些能力已完成。
+构建入口是 `.github/workflows/joplinu-build.yml`，调用独立检查 workflow 后并行构建 Electron Linux x64 RPM 和 Capacitor Android APK。它不依赖旧 Joplin 构建工程。当前打包的是本地笔记库开发版，包含多级目录、SQLite 保存、历史与备份。云同步和同步 E2EE 尚未接入，安装包不代表这些能力已完成。
 
 ## 自动构建
 
@@ -53,7 +53,7 @@ node node_modules/electron/install.js
 npm run build:rpm
 ```
 
-桌面预览可在构建后运行 `npx electron apps/desktop`。CI 使用 Xvfb 启动打包后的真实程序，检查资源加载、四模式入口和 renderer 隔离。测试进程使用的 `--no-sandbox` 不写入应用启动器，正式程序默认保留 sandbox / contextIsolation。
+桌面预览可在构建后运行 `npx electron apps/desktop`。CI 使用 Xvfb 启动打包后的真实程序，检查资源加载、四模式入口、renderer 隔离和实际 SQLite 重启恢复。测试进程使用的 `--no-sandbox` 不写入应用启动器，正式程序默认保留 sandbox / contextIsolation。
 
 Android：
 
@@ -61,7 +61,7 @@ Android：
 npm run build:apk
 ```
 
-APK 构建会同步当前 web assets、运行 assembleDebug / assembleRelease / lintDebug，然后收集产物。Windows 本机可在 `apps/android/native` 使用 `gradlew.bat` 执行相同任务。`JOPLINU_VERSION_CODE` 可指定正整数 versionCode，CI 使用 workflow run number。
+APK 构建会同步当前 web assets、运行 assembleDebug / assembleRelease / lintDebug，然后收集产物。CI 还会在 Android 35 模拟器运行 connectedDebugAndroidTest，验证真实 WebView → Kotlin → SQLite 的中文大载荷分片、CAS 冲突、错误回滚与 Activity 重建恢复；模拟器结果不替代真机中文输入验收。Windows 本机可在 `apps/android/native` 使用 `gradlew.bat` 执行相同任务。`JOPLINU_VERSION_CODE` 可指定正整数 versionCode，CI 使用 workflow run number。
 
 Android 主 Activity 使用 Kotlin；Markdown 导出写入应用 cache 的 exports 目录，再通过系统文件分享界面交给用户。没有申请外部存储全盘权限，也没有接入后台同步。APK 构建成功不能替代 Android 中文输入法、生命周期和真实设备验收。
 

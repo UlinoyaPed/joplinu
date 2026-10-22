@@ -34,7 +34,10 @@ nodes = nodes.append({
 let marks = commonmarkSchema.spec.marks.append({ strike: { toDOM: () => ['del', 0], parseDOM: [{ tag: 'del' }] } });
 marks = marks.update('link', {
 	...marks.get('link')!,
-	toDOM: mark => ['a', { href: safeLink(String(mark.attrs.href)) ? mark.attrs.href : undefined, rel: 'noreferrer noopener' }, 0],
+	toDOM: mark => {
+		const internal = /^(note|attachment):([a-zA-Z0-9-]+)$/.exec(String(mark.attrs.href));
+		return ['a', { href: safeLink(String(mark.attrs.href)) ? mark.attrs.href : undefined, ...(internal ? { [internal[1] === 'note' ? 'data-note' : 'data-attachment']: internal[2] } : {}), rel: 'noreferrer noopener' }, 0];
+	},
 });
 export const richSchema = new Schema({ nodes, marks });
 
@@ -51,8 +54,9 @@ export const richSerializer = new MarkdownSerializer({
 		node.forEach((row, _offset, rowIndex) => {
 			const cells: string[] = [];
 			row.forEach(cell => cells.push(richSerializer.serialize(richSchema.nodes.doc!.create(null, cell.content)).replace(/\n/g, ' ').replace(/\|/g, '\\|')));
-			state.write(`| ${cells.join(' | ')} |\n`);
-			if (rowIndex === 0) state.write(`| ${cells.map(() => '---').join(' | ')} |\n`);
+			if (rowIndex) state.write('\n');
+			state.write(`| ${cells.join(' | ')} |`);
+			if (rowIndex === 0) state.write(`\n| ${cells.map(() => '---').join(' | ')} |`);
 		});
 		state.closeBlock(node);
 	},
@@ -111,7 +115,7 @@ function build(node: Nodes, source: string, activeMarks: readonly Mark[] = []): 
 	case 'image': result = types.image!.create({ src: node.url, alt: node.alt, title: node.title }, null, activeMarks); break;
 	case 'math': result = types.math_block!.create({ value: node.value }); break;
 	case 'inlineMath': result = types.inline_math!.create({ value: node.value }, null, activeMarks); break;
-	case 'table': result = types.table!.create(null, content); break;
+	case 'table': result = types.table!.create(null, content.map((row, index) => index === 0 ? row.type.create(row.attrs, row.content.content.map(cell => types.table_header!.create(cell.attrs, cell.content))) : row)); break;
 	case 'tableRow': result = types.table_row!.create(null, content); break;
 	case 'tableCell': result = types.table_cell!.create(null, types.paragraph!.create(null, content)); break;
 	default: throw new Error(`Unsupported node ${node.type}`);

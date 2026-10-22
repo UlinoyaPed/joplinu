@@ -7,6 +7,7 @@ import { GFM } from '@lezer/markdown';
 import { syntaxTree, syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import type { NoteDocument } from '../../document/src/index';
+import { liveBlockField, refreshLiveBlocks, type LiveResources } from './live-blocks';
 
 function decorate(view: EditorView) {
 	const ranges: { from: number; to: number; decoration: Decoration }[] = [];
@@ -36,8 +37,12 @@ const livePreview = ViewPlugin.fromClass(class {
 	}
 }, { decorations: plugin => plugin.decorations });
 
-export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live: boolean, onPosition?: (offset: number) => void) {
+export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live: boolean, onPosition?: (offset: number) => void, initialResources?: LiveResources) {
+	let resources: LiveResources = initialResources ?? { features: { math: true, diagrams: true, highlight: true, media: true }, assets: new Map() };
+	let resourceVersion = 0;
+	const blocks = liveBlockField(note, () => resources, () => resourceVersion);
 	const mode = new Compartment();
+	const attributes = new Compartment();
 	const owner = {};
 	const selection = note.restoreSelection();
 	const view = new EditorView({
@@ -51,8 +56,8 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 				yCollab(note.text, undefined, { undoManager: note.undo }),
 				Prec.highest(keymap.of(yUndoManagerKeymap)), keymap.of([...defaultKeymap, ...searchKeymap, indentWithTab]),
 				EditorView.lineWrapping,
-				EditorView.contentAttributes.of({ 'aria-label': 'Markdown 源码', spellcheck: 'false', autocapitalize: 'off' }),
-				mode.of(live ? livePreview : []),
+				attributes.of(EditorView.contentAttributes.of({ 'aria-label': 'Markdown 源码', spellcheck: 'false', autocapitalize: 'off' })),
+				mode.of(live ? [livePreview, blocks] : []),
 				EditorView.updateListener.of(update => {
 					if (update.selectionSet || update.docChanged) note.rememberSelection(update.state.selection.main);
 				}),
@@ -69,7 +74,9 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 	});
 	return {
 		view,
-		setLive(value: boolean) { view.dispatch({ effects: mode.reconfigure(value ? livePreview : []) }); },
+		setLive(value: boolean) { view.dispatch({ effects: mode.reconfigure(value ? [livePreview, blocks] : []) }); },
+		setResources(value: LiveResources) { resources = value; resourceVersion++; view.dispatch({ effects: refreshLiveBlocks.of() }); },
+		setSpellcheck(value: boolean) { view.dispatch({ effects: attributes.reconfigure(EditorView.contentAttributes.of({ 'aria-label': 'Markdown 源码', spellcheck: String(value), autocapitalize: 'off' })) }); },
 		focusSource(offset: number) {
 			const position = Math.max(0, Math.min(offset, view.state.doc.length));
 			view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'start' }) });
