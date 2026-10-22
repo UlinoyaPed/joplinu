@@ -69,6 +69,6 @@ app.whenReady().then(() => {
 	app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 
-app.on('before-quit', () => storage.closeDatabase());
+app.on('will-quit', () => storage.closeDatabase());
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

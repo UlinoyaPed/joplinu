@@ -103,7 +103,9 @@ export class PersistedNote {
 		this.running = task;
 		void task.then(() => {
 			this.running = undefined;
-			this.setStatus('saved');
+			if (this.pending.length > 0) {
+				void this.flush().catch(() => {});
+			} else this.setStatus('saved');
 		}, error => {
 			this.running = undefined;
 			this.failure = error;
