@@ -52,7 +52,9 @@ class JoplinuStoragePlugin : Plugin() {
                     updates.put(Base64.encodeToString(data, Base64.NO_WRAP))
                 }
             }
-            call.resolve(JSObject().put("updates", updates))
+            val result = JSObject()
+            result.put("updates", updates)
+            call.resolve(result)
         } catch (error: Exception) {
             call.reject("Local document recovery failed: " + error.message)
         }

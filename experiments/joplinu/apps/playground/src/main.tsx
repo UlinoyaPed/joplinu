@@ -7,13 +7,15 @@ import { createSourceEditor } from '../../../packages/editor/src/codemirror';
 import { createRichEditor } from '../../../packages/editor/src/prosemirror';
 import { sample } from './sample';
 import { exportMarkdown } from '../../../packages/platform/src/export';
+import { createDocumentStore } from '../../../packages/platform/src/storage';
+import { PersistedNote } from '../../../packages/storage/src/index';
 import 'katex/dist/katex.min.css';
 import 'prosemirror-view/style/prosemirror.css';
 import './style.css';
 
-const primary = new NoteDocument(sample);
-const replica = new NoteDocument();
-replica.applyRemote(Y.encodeStateAsUpdate(primary.doc));
+let primary: NoteDocument;
+let replica: NoteDocument;
+let persisted: PersistedNote;
 const renderer = new MarkdownRenderer();
 type Mode = 'live' | 'rich' | 'source' | 'split';
 const modes: { id: Mode; label: string; hint: string }[] = [
@@ -39,6 +41,8 @@ function Peer({ connected }: { connected: boolean }) {
 
 function App() {
 	const source = useSource(primary);
+	const [saveStatus, setSaveStatus] = useState(persisted.status);
+	useEffect(() => persisted.onStatus(() => setSaveStatus(persisted.status)), []);
 	const [mode, setMode] = useState<Mode>('live');
 	const [peer, setPeer] = useState(false);
 	const [connected, setConnected] = useState(true);
@@ -56,6 +60,23 @@ function App() {
 	const importGeneration = useRef(0);
 	const [, setHistoryVersion] = useState(0);
 
+	useEffect(() => {
+		const onBeforeUnload = (event: BeforeUnloadEvent) => {
+			if (persisted.status !== 'saved') { event.preventDefault(); event.returnValue = ''; }
+		};
+		window.addEventListener('beforeunload', onBeforeUnload);
+		const onVisibility = () => { if (document.visibilityState === 'hidden') void persisted.flush().catch(() => {}); };
+		document.addEventListener('visibilitychange', onVisibility);
+		const offClose = window.joplinuDesktop?.onCloseRequested(() => {
+			void persisted.flush().then(() => window.joplinuDesktop?.readyToClose())
+				.catch(() => setProblem({ message: '磁盘保存失败，已阻止退出。请重试保存或导出 Markdown。', draft: primary.source }));
+		});
+		return () => {
+			window.removeEventListener('beforeunload', onBeforeUnload);
+			document.removeEventListener('visibilitychange', onVisibility);
+			offClose?.();
+		};
+	}, []);
 	useEffect(() => {
 		const update = () => setHistoryVersion(value => value + 1);
 		primary.undo.on('stack-item-added', update);
@@ -152,6 +173,7 @@ function App() {
 			<div className="modebar"><div role="tablist" aria-label="编辑模式">{modes.map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => switchMode(item.id)}>{item.label}</button>)}</div><button className={peer ? 'experiment active' : 'experiment'} onClick={() => setPeer(value => !value)}>◫ 双实例实验</button></div>
 			<div className="editor-toolbar"><span>{modes.find(item => item.id === mode)?.hint}</span><div><button aria-label="撤销" disabled={!primary.undo.undoStack.length} onClick={() => primary.undo.undo()}>↶</button><button aria-label="重做" disabled={!primary.undo.redoStack.length} onClick={() => primary.undo.redo()}>↷</button></div></div>
 			{mode === 'rich' && <div className="formatbar" aria-label="格式工具栏">{([['bold', '加粗'], ['italic', '斜体'], ['heading', '标题'], ['paragraph', '正文'], ['list', '列表'], ['quote', '引用']] as const).map(([name, label]) => <button key={name} onMouseDown={event => event.preventDefault()} onClick={() => runRich(name)}>{label}</button>)}<span>公式、扩展语法双击后使用源码编辑</span></div>}
+			{saveStatus === 'error' && <div role="alert" className="problem">本地保存失败；内容仍在内存，退出可能丢失。<button onClick={() => void persisted.retry().catch(() => {})}>重试保存</button><button onClick={() => download(source, 'JoplinU-emergency.md')}>紧急导出 Markdown</button></div>}
 			{problem && <div role="alert" className="problem">{problem.message} {problem.draft && <button onClick={() => download(problem.draft, 'JoplinU-recovery.md')}>导出恢复草稿</button>}<button onClick={() => setProblem(undefined)}>关闭</button></div>}
 			<div className={peer ? 'editor-area with-peer' : 'editor-area'}>
 				<div className={mode === 'split' ? 'panes split' : 'panes'} style={{ '--source-ratio': `${ratio}%` } as React.CSSProperties}>
@@ -171,9 +193,28 @@ function App() {
 				</div>
 				{peer && <div className="peer-panel"><div className="peer-controls"><button onClick={() => setConnected(value => !value)}>{connected ? '断开连接' : '重新连接并合并'}</button><span>{connected ? '本机模拟 · 已连接' : '离线编辑中'}</span></div><Peer connected={connected} /></div>}
 			</div>
-			<footer><span><i className="status-dot" />会话内存 · 未持久化，请导出保存</span><span>{source.length.toLocaleString()} 字符 <b>UTF-16</b> · Markdown</span></footer>
+			<footer><span><i className="status-dot" />{saveStatus === 'saved' ? '已保存至本地' : saveStatus === 'saving' ? '正在保存到本地…' : '本地保存失败 · 请勿退出'}</span><span>{source.length.toLocaleString()} 字符 <b>UTF-16</b> · Markdown</span></footer>
 		</main>
 	</div>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+async function start() {
+	try {
+		persisted = await PersistedNote.open(createDocumentStore(), 'primary', sample);
+		primary = persisted.note;
+		replica = new NoteDocument();
+		replica.applyRemote(Y.encodeStateAsUpdate(primary.doc));
+		createRoot(document.getElementById('root')!).render(<App />);
+	} catch (error) {
+		// No editor mounted: opening sample data could overwrite unreadable history.
+		const host = document.getElementById('root')!;
+		const heading = document.createElement('h1');
+		heading.textContent = '本地笔记恢复失败';
+		const details = document.createElement('p');
+		details.textContent = String(error);
+		const explanation = document.createElement('p');
+		explanation.textContent = '原始存储未被覆盖。请备份应用数据后排查，不要清除应用数据。';
+		host.replaceChildren(heading, details, explanation);
+	}
+}
+void start();
