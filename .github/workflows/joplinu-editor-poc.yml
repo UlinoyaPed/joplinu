@@ -24,6 +24,7 @@ jobs:
           cache: npm
           cache-dependency-path: experiments/joplinu/package-lock.json
       - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=low
       - run: npm run build
       - run: npm test
       - run: npx playwright install --with-deps chromium
@@ -31,6 +32,7 @@ jobs:
         run: |
           export PLAYWRIGHT_CHROMIUM_PATH="$(node --input-type=module -e 'import { chromium } from "@playwright/test"; process.stdout.write(chromium.executablePath())')"
           npm run test:browser
+          npm run test:production
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

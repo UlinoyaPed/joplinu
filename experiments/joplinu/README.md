@@ -17,6 +17,8 @@ npm run build
 npm test
 # 默认使用 /usr/bin/chromium；其他安装位置可覆盖：
 PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm run test:browser
+# 构建后，同样的交互测试再对生产包执行：
+PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium npm run test:production
 ```
 
 CI 安装 Playwright Chromium 并通过环境变量选择可执行文件。测试包含 Markdown 原文保留、双向编辑、共享撤销、源码回退、表格局部修改、并发 / 乱序 / 重复 Yjs 更新、安全渲染与小屏布局。合成 composition 事件不能代替 Android 中文输入法真机测试。

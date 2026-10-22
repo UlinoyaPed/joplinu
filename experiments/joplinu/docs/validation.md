@@ -4,13 +4,14 @@
 
 ## 已执行
 
-`npm run check` 顺序执行 `npm run build`（包含严格 `tsc --noEmit`）、`npm test` 和 `npm run test:browser`。
+`npm run check` 顺序执行 `npm run build`（包含严格 `tsc --noEmit`）、`npm test`、`npm run test:browser` 和 `npm run test:production`。
 
 | 检查 | 结果 / 范围 |
 | --- | --- |
 | TypeScript + Vite production build | 通过；JS 约 1.66 MB，gzip 约 545 KB，仍有大 chunk 提示 |
 | Vitest | 38 / 38：权威文本、远端与本地撤销、相对选区、组合输入队列、非法 / 过期事务、UTF-16、源码保真、表格、代码、链接附件、未知扩展、空行、CRLF、乱序 / 重复更新、并发文字、安全渲染与性能样本 |
-| Playwright + 真实 Chromium | 10 / 10：四模式切换逐字保留；源码与富文本双向编辑；跨模式撤销 / 重做；格式工具栏；换段 / 空行 / 空文档；未知语法源码入口；转换拒绝时原文和恢复草稿；两实例断线编辑 / 重连；合成 composition；安全双列预览与点击定位；393px 小屏布局 |
+| Playwright + 真实 Chromium | 开发服务器 10 / 10，生产构建 10 / 10：四模式切换逐字保留；源码与富文本双向编辑；跨模式撤销 / 重做；格式工具栏；换段 / 空行 / 空文档；未知语法源码入口；转换拒绝时原文和恢复草稿；两实例断线编辑 / 重连；合成 composition；安全双列预览与点击定位；393px 小屏布局。首项同时检查 console error、运行错误与实际字体加载；复测使用与 CI 一致的 Chrome for Testing 156.0.8078.4 |
+| 依赖审计 | 显式 npm audit 完成，当前锁文件报告 0 项漏洞；这不等同于代码安全审计 |
 | `git diff --check` | 通过 |
 | 根忽略文件生成器 | `yarn updateIgnored` 因旧根工程未安装依赖、缺 node_modules state 失败；在独立临时工具目录安装 fs-extra / execa / glob 后，通过 NODE_PATH 运行仓库原有 updateIgnoredTypeScriptBuildRun.js 成功，只增加新 TS 文件对应的 JS 忽略项 |
 
@@ -22,6 +23,9 @@
 - 同一富文本事务的两个分离修改不再用一个大替换删除中间字符；测试验证中间的并发插入仍存在。
 - Markdown 不保留结构化空段落；投影增加对应额外空行的虚拟段落，以支持 Enter、连续空段落和空文档输入，再次切换不吞掉已写入的段落。
 - 代码正文与语言名相同时，位置映射需要跳过代码围栏首行，已有回归测试。
+- 生产包检查发现 Vite 默认将小字体内联成 data URL，被 font-src self 拦截；关闭资源内联并添加生产包浏览器验证，没有扩大 CSP 资源权限。缺失的站点图标改为本工程独立 SVG。
+- 首次远端浏览器测试发现「点击整个富文本容器后按 End」在不同 Chromium / 字体下的光标位置不一致；测试改为点击具体段落、断言焦点、Control+End 定位文末，并用 CI 浏览器版本复测。
+- 首次依赖审计报告旧 Vitest / tinypool 和 KaTeX 的已知问题；升级 Vitest 5.0.5、KaTeX 0.19.0，并统一传递 KaTeX 版本后审计归零，新增 CI 审计检查。
 - 当表格单元格直接输入未转义管道符导致源码结构不等价，原型拒绝写入，保留原文并提供已转义的恢复草稿。这是已测试的安全回退，也说明当前富文本适配仍有体验缺口。
 
 ## 性能证据
@@ -43,7 +47,6 @@ Vitest 在当前机器构建含中文、标题、段落与加粗的 Markdown，�
 - OSS / S3 Provider、真实 OSS / MinIO、凭据安全存储、E2EE、快照 / 新设备恢复、迁移、回滚检测和附件 GC 尚未实现，未执行任何云存储读写。
 - Shiki / Mermaid、Live Preview 块 widgets、直接富文本公式编辑、资源加载、完整上下文菜单尚未实现。
 - 复杂嵌套与格式并发可能文本收敛却语法不合法；没有声称解决所有语义冲突。CRLF / 转义 / 原子节点的精确选区，以及组合输入取消与多窗口同时编辑仍需覆盖。
-- npm audit 请求本次未返回有效结果，已停止等待，没有获得依赖漏洞审计结论。
 - 新增了原型专用 GitHub Actions；远端流水线状态需在 PR 中单独确认，本地通过不代表远端已经运行。
 
 **结论：已交付可运行、经过测试的阶段 1 概念验证；统一文档模型的完整验收门槛仍开放。先补完保真、真实中文 IME 和性能证据，再开始完整同步开发。**

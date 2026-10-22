@@ -111,6 +111,7 @@ experiments/joplinu/packages/editor/src/prosemirror.js
 experiments/joplinu/packages/editor/src/rich-model.js
 experiments/joplinu/packages/markdown/src/index.js
 experiments/joplinu/playwright.config.js
+experiments/joplinu/playwright.production.config.js
 experiments/joplinu/tests/browser/editor.spec.js
 experiments/joplinu/tests/document.test.js
 experiments/joplinu/tests/markdown.test.js

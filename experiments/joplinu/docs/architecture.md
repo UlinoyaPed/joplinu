@@ -70,6 +70,8 @@ Chromium 合成 composition 事件只能验证路由和单次写入，不能证�
 
 Shiki 与 Mermaid 尚未加入原型，代码当前保留为安全文本。后续高亮按语言动态加载；Mermaid 使用 strict、安全 SVG 清洗与渲染隔离，不能直接信任生成 SVG 或开放图中 HTML / 点击回调。Live Preview 目前只做可见区域增量语法树 Decorations，块表格 / 图片 / 公式 widgets 后续单独实现并测量高度稳定性。
 
+实际依赖审计后将 Vitest 从 3.2 系列升级至 5.0.5（修复 mocker / tinypool 已知问题），KaTeX 从 0.16 系列升级至 0.19.0（修复 trust 限制受既有原型污染绕过的问题）。remark-math / rehype-katex 仍声明旧 KaTeX 范围，因此使用显式 overrides 统一到直接依赖版本，并以类型检查、数学安全测试和实际浏览器渲染验证兼容性，不能只强制版本而不运行验证。
+
 ## ADR-005：SQLite 与平台壳（阶段 2 / 5，未实现）
 
 SQLite 接口返回 Promise、串行写队列。桌面数据库运行于主进程 / worker，renderer 不持有文件系统权限；Android 用 Kotlin SQLite 插件并使用 Android Keystore 保护凭据。本地事务同时写入 `document_updates`、本地提交记录和未来上传 outbox，再更新「已保存到本地」状态；持久化失败不得展示已保存。恢复先验证基线与更新校验，再重放 Yjs。阶段 1 只有会话内存，没有伪装为 SQLite 的 localStorage。

@@ -19,11 +19,14 @@ async function exported(page: Page) {
 test('four modes preserve every original byte through repeated switches', async ({ page }) => {
 	const errors: string[] = [];
 	page.on('pageerror', error => errors.push(error.message));
+	page.on('console', message => { if (message.type() === 'error') errors.push(message.text().slice(0, 400)); });
 	await load(page);
 	for (const name of ['源码', '富文本', '双列', '实时预览', '富文本', '源码']) {
 		await page.getByRole('tab', { name, exact: true }).click();
 		await expect(page.getByRole('tab', { name, exact: true })).toHaveAttribute('aria-selected', 'true');
+		if (name === '双列') await expect(page.getByLabel('Markdown 预览').locator('.katex')).toBeVisible();
 	}
+	await page.evaluate(() => document.fonts.ready);
 	expect(await exported(page)).toBe(fixture);
 	expect(errors).toEqual([]);
 });
@@ -69,8 +72,9 @@ test('rich typing supports new paragraphs, blank lines and an empty document', a
 	await load(page, '起点');
 	await page.getByRole('tab', { name: '富文本', exact: true }).click();
 	const rich = page.getByRole('textbox', { name: '富文本编辑器' });
-	await rich.click();
-	await page.keyboard.press('End');
+	await rich.locator('p').first().click();
+	await expect(rich).toBeFocused();
+	await page.keyboard.press('Control+End');
 	await page.keyboard.press('Enter');
 	await page.keyboard.press('Enter');
 	await page.keyboard.insertText('新段落');
