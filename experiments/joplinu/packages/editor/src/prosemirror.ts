@@ -7,6 +7,23 @@ import { tableEditing, goToNextCell } from 'prosemirror-tables';
 import type { NoteDocument } from '../../document/src/index';
 import { projectMarkdown, planRichEdits, richSchema, sourceToRich, richToSource, richSerializer } from './rich-model';
 
+function commandWithDomSelection(view: EditorView, command: Command) {
+	const selection = view.dom.ownerDocument.getSelection();
+	if (selection?.anchorNode && selection.focusNode && view.dom.contains(selection.anchorNode) && view.dom.contains(selection.focusNode)) {
+		const anchor = view.posAtDOM(selection.anchorNode, selection.anchorOffset);
+		const head = view.posAtDOM(selection.focusNode, selection.focusOffset);
+		const next = TextSelection.between(view.state.doc.resolve(anchor), view.state.doc.resolve(head));
+		// Native selectionchange can arrive after a toolbar or keyboard command.
+		if (!next.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(next));
+	}
+	return command(view.state, view.dispatch, view);
+}
+
+const selectBoundary = (end: boolean): Command => (state, dispatch) => {
+	dispatch?.(state.tr.setSelection(end ? Selection.atEnd(state.doc) : Selection.atStart(state.doc)).scrollIntoView());
+	return true;
+};
+
 export function createRichEditor(parent: HTMLElement, note: NoteDocument, onError: (message: string, draft: string) => void, onSourceFallback: (offset: number) => void) {
 	let projection = projectMarkdown(note.source);
 	let local = false;
@@ -26,8 +43,10 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 					'Mod-z': () => { note.undo.undo(); return true; },
 					'Mod-y': () => { note.undo.redo(); return true; },
 					'Mod-Shift-z': () => { note.undo.redo(); return true; },
-					'Mod-b': toggleMark(richSchema.marks.strong!),
-					'Mod-i': toggleMark(richSchema.marks.em!),
+					'Mod-b': (_state, _dispatch, editor) => !!editor && commandWithDomSelection(editor, toggleMark(richSchema.marks.strong!)),
+					'Mod-i': (_state, _dispatch, editor) => !!editor && commandWithDomSelection(editor, toggleMark(richSchema.marks.em!)),
+					'Mod-Home': (_state, _dispatch, editor) => !!editor && commandWithDomSelection(editor, selectBoundary(false)),
+					'Mod-End': (_state, _dispatch, editor) => !!editor && commandWithDomSelection(editor, selectBoundary(true)),
 					Enter: splitListItem(richSchema.nodes.list_item!),
 					Tab: (state, dispatch, editor) => goToNextCell(1)(state, dispatch, editor) || sinkListItem(richSchema.nodes.list_item!)(state, dispatch, editor),
 					'Shift-Tab': (state, dispatch, editor) => goToNextCell(-1)(state, dispatch, editor) || liftListItem(richSchema.nodes.list_item!)(state, dispatch, editor),
@@ -97,7 +116,7 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 	});
 	return {
 		view,
-		command(command: Command) { command(view.state, view.dispatch, view); view.focus(); },
+		command(command: Command) { commandWithDomSelection(view, command); view.focus(); },
 		bold: toggleMark(richSchema.marks.strong!),
 		italic: toggleMark(richSchema.marks.em!),
 		heading: setBlockType(richSchema.nodes.heading!, { level: 2 }),

@@ -55,14 +55,21 @@ test('source → rich → source edits, shared undo and redo retain untouched sy
 	await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-test('rich toolbar formats selected text without rewriting other blocks', async ({ page }) => {
+test('rich toolbar formats a browser DOM selection without rewriting other blocks', async ({ page }) => {
 	await load(page, '正文文字\n\n~~~ts\nlet n = 1;\n~~~\n');
 	await page.getByRole('tab', { name: '富文本', exact: true }).click();
 	const rich = page.getByRole('textbox', { name: '富文本编辑器' });
 	await rich.locator('p').first().click();
-	await page.keyboard.press('Control+Home');
-	await page.keyboard.press('Shift+ArrowRight');
-	await page.keyboard.press('Shift+ArrowRight');
+	await rich.locator('p').first().evaluate(paragraph => {
+		const range = document.createRange();
+		range.setStart(paragraph.firstChild!, 0);
+		range.setEnd(paragraph.firstChild!, 2);
+		const selection = document.getSelection()!;
+		selection.removeAllRanges();
+		selection.addRange(range);
+		document.dispatchEvent(new Event('selectionchange'));
+	});
+	await expect.poll(() => rich.evaluate(() => document.getSelection()?.toString())).toBe('正文');
 	await page.getByRole('button', { name: '加粗', exact: true }).click();
 	await expect(rich.locator('strong')).toHaveText('正文');
 	expect(await exported(page)).toBe('**正文**文字\n\n~~~ts\nlet n = 1;\n~~~\n');
