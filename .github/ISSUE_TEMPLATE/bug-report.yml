@@ -1,0 +1,21 @@
+name: JoplinU bug report
+description: Report a reproducible JoplinU problem
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the JoplinU version, operating system, and editor mode.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Remove credentials and private note content before attaching evidence.
