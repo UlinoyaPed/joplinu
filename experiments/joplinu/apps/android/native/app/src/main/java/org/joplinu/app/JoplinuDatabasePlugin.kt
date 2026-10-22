@@ -45,7 +45,9 @@ class JoplinuDatabasePlugin : Plugin() {
 
     @PluginMethod
     fun write(call: PluginCall) = synchronized(lock) {
-        val revision = call.getLong("expectedRevision")
+        // Capacitor getLong only accepts java.lang.Long; JSON stores small values as Integer.
+        val rawRevision = call.data.opt("expectedRevision") as? Number
+        val revision = rawRevision?.toDouble()?.takeIf { it.isFinite() && it >= 0 && it < 9007199254740991.0 && it % 1.0 == 0.0 }?.toLong()
         val payload = call.getString("payload")
         if (revision == null || revision < 0 || payload == null || payload.toByteArray(Charsets.UTF_8).size > 40 * 1024 * 1024) {
             call.reject("Invalid local save request"); return@synchronized
