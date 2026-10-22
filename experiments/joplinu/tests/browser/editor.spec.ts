@@ -179,3 +179,15 @@ test('small-screen layout keeps both split panes reachable without horizontal ov
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 	await page.screenshot({ path: 'test-results/mobile-editor.png', fullPage: true });
 });
+
+test('local journal restores Markdown after hard page reload in browser storage', async ({ page }) => {
+	const text = '# 恢复测试  \\r\\n\\r\\n中文😀 **原样**\\r\\n';
+	await load(page, text);
+	await expect(page.locator('footer')).toContainText('已保存至本地');
+	await page.reload();
+	await expect(page.getByRole('tab', { name: '实时预览', exact: true })).toBeVisible();
+	expect(await exported(page)).toBe(text);
+	await page.getByRole('tab', { name: '富文本', exact: true }).click();
+	await page.getByRole('tab', { name: '源码', exact: true }).click();
+	expect(await exported(page)).toBe(text);
+});
