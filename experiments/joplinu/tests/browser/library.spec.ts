@@ -96,7 +96,7 @@ test('rich math edits have a real formula dialog and preserve untouched Markdown
 
 test('an async file import cannot switch away from a different note during composition', async ({ page }) => {
 	await open(page);
-	await page.evaluate(() => { const original = File.prototype.text; File.prototype.text = async function() { if (this.name === 'slow.md') await new Promise<void>(resolve => window.addEventListener('test-release-file-read', () => resolve(), { once: true })); return original.call(this); }; });
+	await page.evaluate(() => { const original = File.prototype.arrayBuffer; File.prototype.arrayBuffer = async function() { if (this.name === 'slow.md') await new Promise<void>(resolve => window.addEventListener('test-release-file-read', () => resolve(), { once: true })); return original.call(this); }; });
 	await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles({ name: 'slow.md', mimeType: 'text/markdown', buffer: Buffer.from('不可打断输入') });
 	await page.getByRole('complementary', { name: '笔记导航' }).getByRole('button', { name: '新建笔记', exact: true }).click();
 	const source = page.getByRole('textbox', { name: 'Markdown 源码' }); await source.click();
@@ -122,4 +122,12 @@ test('live block widgets render tables, formulas and code without changing origi
 	await page.locator('.live-block-preview').filter({ has: page.locator('table') }).dblclick(); await expect(page.getByRole('textbox', { name: 'Markdown 源码' })).toBeFocused();
 	await expect(page.locator('.live-block-preview table')).toHaveCount(0); expect((await download(page, '导出 Markdown ↗')).toString()).toBe(source);
 	await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('structural rich table edits preserve existing column alignment and surrounding blocks', async ({ page }) => {
+	await open(page); const ending = '\n\n~~~ts\nconst untouched = 1;\n~~~\n';
+	await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles({ name: '对齐.md', mimeType: 'text/markdown', buffer: Buffer.from('| 左 | 右 |\n|:---|---:|\n| 甲 | 乙 |' + ending) });
+	await page.getByRole('tab', { name: '富文本', exact: true }).click(); const rich = page.getByRole('textbox', { name: '富文本编辑器' });
+	await rich.locator('td').last().click(); await page.getByRole('button', { name: '增加行', exact: true }).click(); await expect(rich.locator('tr')).toHaveCount(3);
+	const source = (await download(page, '导出 Markdown ↗')).toString(); expect(source).toContain('| :--- | ---: |'); expect(source.endsWith(ending)).toBe(true); await expect(page.getByRole('alert')).toHaveCount(0);
 });

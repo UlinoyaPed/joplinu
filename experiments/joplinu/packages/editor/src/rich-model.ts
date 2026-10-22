@@ -6,7 +6,9 @@ import { sourceBlocks, safeLink, type SourceBlock } from '../../markdown/src/ind
 import { minimalEdit, type TextEdit } from '../../document/src/index';
 import { diffChars } from 'diff';
 
-let nodes = commonmarkSchema.spec.nodes.append(tableNodes({ tableGroup: 'block', cellContent: 'paragraph+', cellAttributes: {} }));
+let nodes = commonmarkSchema.spec.nodes.append(tableNodes({ tableGroup: 'block', cellContent: 'paragraph+', cellAttributes: {
+	align: { default: null, getFromDOM: dom => ['left', 'center', 'right'].includes(dom.style.textAlign) ? dom.style.textAlign : null, setDOMAttr(value, attributes) { if (['left', 'center', 'right'].includes(String(value))) attributes.style = `text-align: ${String(value)}`; } },
+} }));
 nodes = nodes.update('list_item', {
 	...nodes.get('list_item')!,
 	attrs: { checked: { default: null } },
@@ -56,7 +58,7 @@ export const richSerializer = new MarkdownSerializer({
 			row.forEach(cell => cells.push(richSerializer.serialize(richSchema.nodes.doc!.create(null, cell.content)).replace(/\n/g, ' ').replace(/\|/g, '\\|')));
 			if (rowIndex) state.write('\n');
 			state.write(`| ${cells.join(' | ')} |`);
-			if (rowIndex === 0) state.write(`\n| ${cells.map(() => '---').join(' | ')} |`);
+			if (rowIndex === 0) { const delimiters: string[] = []; row.forEach(cell => delimiters.push(({ left: ':---', center: ':---:', right: '---:' } as Record<string, string>)[String(cell.attrs.align)] ?? '---')); state.write(`\n| ${delimiters.join(' | ')} |`); }
 		});
 		state.closeBlock(node);
 	},
@@ -115,7 +117,7 @@ function build(node: Nodes, source: string, activeMarks: readonly Mark[] = []): 
 	case 'image': result = types.image!.create({ src: node.url, alt: node.alt, title: node.title }, null, activeMarks); break;
 	case 'math': result = types.math_block!.create({ value: node.value }); break;
 	case 'inlineMath': result = types.inline_math!.create({ value: node.value }, null, activeMarks); break;
-	case 'table': result = types.table!.create(null, content.map((row, index) => index === 0 ? row.type.create(row.attrs, row.content.content.map(cell => types.table_header!.create(cell.attrs, cell.content))) : row)); break;
+	case 'table': result = types.table!.create(null, content.map((row, index) => row.type.create(row.attrs, row.content.content.map((cell, column) => types[index === 0 ? 'table_header' : 'table_cell']!.create({ ...cell.attrs, align: node.align?.[column] ?? null }, cell.content))))); break;
 	case 'tableRow': result = types.table_row!.create(null, content); break;
 	case 'tableCell': result = types.table_cell!.create(null, types.paragraph!.create(null, content)); break;
 	default: throw new Error(`Unsupported node ${node.type}`);

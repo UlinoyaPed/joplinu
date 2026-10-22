@@ -27,7 +27,7 @@ $$
 const principle = '先保护数据';
 \`\`\`
 
-![离线附件](attachment:example-image)
+通过「附件」添加图片或文件，完整备份会保留它们。
 
 :::custom-extension
 未知语法保持原样；富文本视图中双击此区域可进入源码。

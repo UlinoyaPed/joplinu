@@ -63,7 +63,7 @@ Android：
 npm run build:apk
 ```
 
-APK 构建会同步当前 web assets、运行 assembleDebug / assembleRelease / lintDebug，然后收集产物。CI 还会在 Android 35 模拟器运行 connectedDebugAndroidTest，验证真实 WebView → Kotlin → SQLite 的中文大载荷分片、CAS 冲突、错误回滚与 Activity 重建恢复；模拟器结果不替代真机中文输入验收。Windows 本机可在 `apps/android/native` 使用 `gradlew.bat` 执行相同任务。`JOPLINU_VERSION_CODE` 可指定正整数 versionCode，CI 使用 workflow run number。
+APK 构建会同步当前 web assets、运行 :app:assembleDebug / :app:assembleRelease / :app:lintDebug，然后收集产物。CI 还会在 Android 35 模拟器运行 :app:connectedDebugAndroidTest，验证真实 WebView → Kotlin → SQLite 的中文大载荷分片、CAS 冲突、错误回滚与 Activity 重建恢复；模拟器结果不替代真机中文输入验收。Windows 本机可在 `apps/android/native` 使用 `gradlew.bat` 执行相同任务。`JOPLINU_VERSION_CODE` 可指定正整数 versionCode，CI 使用 workflow run number。
 
 Android 主 Activity 使用 Kotlin；Markdown 导出写入应用 cache 的 exports 目录，再通过系统文件分享界面交给用户。没有申请外部存储全盘权限，也没有接入后台同步。APK 构建成功不能替代 Android 中文输入法、生命周期和真实设备验收。
 

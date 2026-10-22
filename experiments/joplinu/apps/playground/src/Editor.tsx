@@ -14,9 +14,9 @@ import './style.css';
 
 const renderer = new MarkdownRenderer();
 const modes: { id: Mode; label: string; hint: string }[] = [
-	{ id: 'live', label: '实时预览', hint: 'CodeMirror · 光标处显示 Markdown 标记' },
-	{ id: 'rich', label: '富文本', hint: 'ProseMirror · 未识别语法保留为源码块，双击可编辑' },
-	{ id: 'source', label: '源码', hint: 'CodeMirror · 原始 Markdown' },
+	{ id: 'live', label: '实时预览', hint: '光标处显示 Markdown 标记 · 双击块预览编辑源码' },
+	{ id: 'rich', label: '富文本', hint: '直接编辑格式化内容 · 未识别语法保留源码' },
+	{ id: 'source', label: '源码', hint: '原始 Markdown · 支持搜索与替换' },
 	{ id: 'split', label: '双列', hint: '源码与安全预览 · 点击预览定位原文' },
 ];
 

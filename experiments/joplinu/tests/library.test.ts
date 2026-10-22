@@ -4,7 +4,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { createVault, createNote, decodeDocument, encodeDocument, folderPath, moveFolder, newId, validateVault, sha256, toBase64 } from '../packages/library/src/model';
 import { LibraryController } from '../packages/library/src/controller';
 import type { StoredVault, VaultStorage } from '../packages/database/src/index';
-import { createBackup, exportDirectory, importArchive, importDirectoryFiles, importMarkdownFiles, mergeBackup, readBackup, rewriteLocalReferences, searchableNotes, unzipLimited } from '../packages/library/src/transfer';
+import { createBackup, exportDirectory, importArchive, importDirectoryFiles, importMarkdownFiles, mergeBackup, readBackup, readMarkdownFile, rewriteLocalReferences, searchableNotes, unzipLimited } from '../packages/library/src/transfer';
 import { encryptBackup, decryptBackup } from '../packages/crypto/src/backup';
 
 class MemoryStorage implements VaultStorage {
@@ -76,6 +76,10 @@ describe('local library data safety', () => {
 		note.tags = ['工作']; expect(searchableNotes(vault, '工作 标题', null, false).map(note => note.id)).toEqual([note.id]);
 		expect(() => importMarkdownFiles(vault, [{ path: '../escape.md', source: '' }])).toThrow();
 	});
+	it('rejects invalid UTF-8 instead of silently replacing Chinese bytes, and retains BOM/CRLF', async () => {
+		await expect(readMarkdownFile(new File([new Uint8Array([0xff, 0xa1, 0xb0])], 'GBK.md'))).rejects.toThrow(/UTF-8/);
+		const text = '\uFEFF# 中文\r\n\r\n原文  \r\n'; expect(await readMarkdownFile(new File([text], 'UTF8.md'))).toBe(text);
+	});
 	it('imports relative Markdown links and only referenced attachments within selected files', async () => {
 		const vault = createVault(); vault.preferences.imageMaxWidth = 0;
 		const source = '[下一篇](../b.md)\n\n[附件](../files/说明.pdf)\n\n`../b.md`\n';
@@ -90,6 +94,13 @@ describe('local library data safety', () => {
 });
 
 describe('complete backup and folder archive', () => {
+	it('exports every same-title note even when their identifier prefixes collide', async () => {
+		const vault = createVault('第一篇'); vault.notes[0]!.title = 'CON'; vault.notes[0]!.id = '12345678-1111-4111-8111-111111111111';
+		const second = createNote('CON', vault.folders[0]!.id, '第二篇'); second.id = '12345678-2222-4222-8222-222222222222'; vault.notes.push(second);
+		const files = unzipLimited(await exportDirectory(vault)); const markdown = Object.entries(files).filter(([path]) => path.endsWith('.md'));
+		expect(markdown).toHaveLength(2); expect(markdown.map(([, bytes]) => new TextDecoder().decode(bytes)).sort()).toEqual(['第一篇', '第二篇'].sort());
+		expect(markdown.every(([path]) => path.split('/').at(-1)!.startsWith('_CON~'))).toBe(true);
+	});
 	it('round-trips history, settings, trash, attachments and CRDT without overwriting current notes', async () => {
 		const incoming = createVault('待备份'); const first = incoming.notes[0]!; const id = newId();
 		const attachment = { id, name: '中文.txt', mime: 'text/plain', data: toBase64(strToU8('附件')), sha256: await sha256(strToU8('附件')), createdAt: Date.now() };

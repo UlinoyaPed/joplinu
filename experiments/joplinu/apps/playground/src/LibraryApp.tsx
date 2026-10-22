@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { LibraryController } from '../../../packages/library/src/controller';
 import { createNote, folderPath, formatDate, fromBase64, moveFolder, validatePreferences, type Note, type Vault } from '../../../packages/library/src/model';
-import { createBackup, exportDirectory, importArchive, importDirectoryFiles, makeAttachment, mergeBackup, readBackup, searchableNotes } from '../../../packages/library/src/transfer';
+import { createBackup, exportDirectory, importArchive, importDirectoryFiles, makeAttachment, mergeBackup, readBackup, readMarkdownFile, searchableNotes } from '../../../packages/library/src/transfer';
 import { encryptBackup, decryptBackup } from '../../../packages/crypto/src/backup';
 import { parseMarkdown } from '../../../packages/markdown/src/index';
 import { exportFile, exportMarkdown } from '../../../packages/platform/src/export';
@@ -117,7 +117,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 			if (kind === 'markdown' || kind === 'directory') {
 				const selected = files.filter(file => /\.(md|markdown|txt)$/i.test(file.name));
 				if (!selected.length || selected.length > 1000 || selected.reduce((size, file) => size + file.size, 0) > 20 * 1024 * 1024 || selected.some(file => file.size > 2 * 1024 * 1024)) throw new Error('支持最多 1000 个 Markdown 文件，每个不超过 2 MiB，总计不超过 20 MiB');
-				const values = await Promise.all(selected.map(async file => ({ path: kind === 'directory' ? file.webkitRelativePath || file.name : file.name, source: await file.text() })));
+				const values = await Promise.all(selected.map(async file => ({ path: kind === 'directory' ? file.webkitRelativePath || file.name : file.name, source: await readMarkdownFile(file) })));
 				if (activeDocument.current?.isComposing) throw new Error('请结束中文输入后重新导入');
 				const before = controller.vault.notes.length; let next: Vault;
 				if (kind === 'markdown' && values.length === 1) next = { ...controller.vault, notes: [...controller.vault.notes, createNote(selected[0]!.name.replace(/\.(md|markdown|txt)$/i, '').slice(0, 500), folderId, values[0]!.source)] };

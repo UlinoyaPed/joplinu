@@ -18,12 +18,13 @@
 		"check": "npm run build && npm test && npm run test:packaging && npm run test:browser && npm run test:production",
 		"build:rpm": "npm run desktop:package && node scripts/collect-rpm.mjs",
 		"android:sync": "npm exec --workspace @joplinu/android -- cap sync android",
-		"android:assemble": "cd apps/android/native && ./gradlew assembleDebug assembleRelease lintDebug --no-daemon",
+		"android:assemble": "cd apps/android/native && ./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug --no-daemon",
 		"build:apk": "npm run build && npm run android:sync && npm run android:assemble && node scripts/collect-android.mjs",
 		"test:packaging": "node --test scripts/*.test.mjs",
 		"test:desktop": "node scripts/desktop-smoke.mjs",
 		"prebuild": "node scripts/notices.mjs",
-		"desktop:package": "npm run build && electron-builder --config electron-builder.config.cjs --linux rpm --x64 --publish never"
+		"desktop:package": "npm run build && electron-builder --config electron-builder.config.cjs --linux rpm --x64 --publish never",
+		"android:test": "cd apps/android/native && ./gradlew :app:connectedDebugAndroidTest --no-daemon"
 	},
 	"engines": {
 		"node": ">=22.19"

@@ -135,7 +135,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 2048
-          script: cd experiments/joplinu/apps/android/native && ./gradlew connectedDebugAndroidTest --no-daemon
+          script: npm --prefix experiments/joplinu run android:test
       - uses: actions/upload-artifact@v4
         with:
           name: joplinu-android-apk

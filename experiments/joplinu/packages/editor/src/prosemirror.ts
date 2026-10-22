@@ -27,6 +27,24 @@ const selectBoundary = (end: boolean): Command => (state, dispatch) => {
 	return true;
 };
 
+const gfmTableCommand = (command: Command): Command => (state, dispatch, view) => command(state, dispatch ? transaction => {
+	// GFM defines one alignment per column and a single header row.
+	transaction.doc.descendants((table, position) => {
+		if (table.type.name !== 'table') return;
+		const alignments = table.firstChild!.content.content.map(cell => cell.attrs.align);
+		let rowPosition = position + 1;
+		table.forEach((row, _offset, rowIndex) => {
+			let cellPosition = rowPosition + 1;
+			row.forEach((cell, _cellOffset, column) => {
+				const type = richSchema.nodes[rowIndex === 0 ? 'table_header' : 'table_cell']!; const align = alignments[column] ?? null;
+				if (cell.type !== type || cell.attrs.align !== align) transaction.setNodeMarkup(cellPosition, type, { ...cell.attrs, align });
+				cellPosition += cell.nodeSize;
+			}); rowPosition += row.nodeSize;
+		}); return false;
+	});
+	dispatch(transaction);
+} : undefined, view);
+
 export interface MathEdit { value: string; from: number; to: number; display: boolean; baseline: string }
 export interface RichResources {
 	math?: boolean;
@@ -197,7 +215,7 @@ export function createRichEditor(parent: HTMLElement, note: NoteDocument, onErro
 			const row = (header: boolean) => richSchema.nodes.table_row!.create(null, [cell(header, header ? '标题一' : '内容'), cell(header, header ? '标题二' : '内容')]);
 			dispatch?.(state.tr.replaceSelectionWith(richSchema.nodes.table!.create(null, [row(true), row(false)])).scrollIntoView()); return true;
 		}) as Command,
-		addRow: addRowAfter, addColumn: addColumnAfter, deleteRow, deleteColumn,
+		addRow: gfmTableCommand(addRowAfter), addColumn: gfmTableCommand(addColumnAfter), deleteRow: gfmTableCommand(deleteRow), deleteColumn: gfmTableCommand(deleteColumn),
 		destroy() { saveSelection(); unsubscribe(); view.destroy(); note.endComposition(owner); },
 	};
 }

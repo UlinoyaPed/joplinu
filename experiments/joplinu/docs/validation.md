@@ -64,9 +64,9 @@ Electron 开发与 linux-unpacked 程序均通过 Playwright 实际启动；测�
 本轮以截图功能与文件夹管理为范围，新增有界 SQLite / IndexedDB 持久化、目录 / 搜索 / 标签 / 回收站、设置、历史、附件、完整备份、密码加密备份、实际 Shiki / Mermaid、富文本公式弹窗 / 任务开关 / 表格工具和实时预览块 widgets。上方早期原型中“内存会话”“未接入数据库 / 附件 / Shiki / Mermaid”的描述属于先前提交状态，已由本节和 [local-library.md](local-library.md) 更新。
 
 - 严格 TypeScript + Vite production build 通过；代码与图表依赖按需分块，仍有较大 chunk 提示。
-- Vitest 52 / 52：包括存储失败、保存中继续编辑、过期窗口、Yjs 重开与恢复、目录 / 引用导入、完整备份 / ZIP、认证加密错误与篡改拒绝，以及表格结构转换的新增回归。
+- Vitest 54 / 54：包括存储失败、保存中继续编辑、过期窗口、Yjs 重开与恢复、目录 / 引用导入、完整备份 / ZIP、认证加密错误与篡改拒绝，以及表格结构转换的新增回归。
 - Node packaging tests 7 / 7：其中 3 项直接操作真实 SQLite，覆盖重开、SIGKILL 后恢复、过期 / 无效 / 超限写入；不是用内存 mock 证明 SQLite。其余是既有路径与签名边界。
-- Chromium 交互：开发 22 / 22、production 22 / 22。新增目录 / 搜索 / 移动 / 回收站、持久设置与历史、实际 Mermaid / Shiki、附件、恢复备份、过期窗口与恢复导出、移动设置分类、富文本表格 / 任务 / 公式、内链与 Live Preview 块。
+- Chromium 交互：开发 23 / 23、production 23 / 23。新增目录 / 搜索 / 移动 / 回收站、持久设置与历史、实际 Mermaid / Shiki、附件、恢复备份、过期窗口与恢复导出、移动设置分类、富文本表格 / 任务 / 公式、内链与 Live Preview 块。
 - Electron 在隔离临时 profile 中实际启动，检查 sandbox / contextIsolation / Node 隔离，编辑后退出再启动读取 SQLite，并确认损坏 SQLite 文件启动后保持原样且显示恢复界面；CI 还会对打包后的程序运行同一测试。
 - npm audit 报告 0 项已知漏洞；不等同于完整安全审计。
 - workflow 通过 actionlint。新增 Android 35 模拟器 instrumentation 验证真实 WebView / Kotlin / SQLite；成功与否以本提交 CI 为准，不以源码存在代替运行。
@@ -76,3 +76,9 @@ Electron 开发与 linux-unpacked 程序均通过 Playwright 实际启动；测�
 当前限制：聚合快照容量 40 MiB、当前全文搜索是本地内存缓存，不是 SQLite FTS；窗口争写会拒绝并要求备份后重开，不是自动协同；云同步 / 同步 E2EE / 后台任务未实现；真实中文 IME、完整双语、Windows/macOS 与 1 MiB 性能门槛仍开放。独立备份密码丢失无法恢复。
 
 云端首次增量发现 Chromium 156 下行内公式 wrapper 的命中区域可能只有 1 像素，双击被父段落拦截。改为有最小尺寸的 inline-block，未使用 force-click 绕过；随后用相同 Chrome for Testing 156 在本地完整执行开发 / 生产各 22 项通过。增加了可控制文件读取完成顺序的组合输入回归，避免异步导入根据旧笔记状态切走正在组合输入的新笔记。
+
+Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中文 / emoji 大载荷 SQLite 分片、过期与非法写入拒绝、完整性检查、WebView 重载和 Activity 重建。首次运行的通用 connectedDebugAndroidTest 随后也选择了生成的 Cordova SDK 子模块测试，触发其依赖重复类检查；应用测试本身 0 失败。改为明确 :app:connectedDebugAndroidTest，组装与 lint 也限定应用模块，避免把依赖工程测试误算成应用验收。
+
+新增目录导出回归：同标题、相同短 ID 前缀的两篇笔记不能覆盖同一个 Markdown 文件。导出路径改用完整 ID，并限制名称 UTF-8 字节长度、处理 Windows 保留名称；完整备份清单始终保留原始标题。
+
+导入现在以严格 UTF-8 解码，保留 BOM / CRLF，错误编码明确拒绝而不是替换成乱码；新增回归通过。表格结构命令保留列对齐属性，修改行列后重新映射 GFM 表头与对齐，周围代码围栏保持原文。窄桌面 / 平板使用抽屉导航以保留编辑宽度。最终本地完整检查：54 核心、7 包装边界、Chromium 156 开发与生产各 23 项通过。

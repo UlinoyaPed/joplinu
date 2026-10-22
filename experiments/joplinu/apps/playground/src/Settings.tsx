@@ -96,7 +96,7 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 				</>}
 				{section === 'transfer' && <>
 					<h4>Markdown 与文件夹</h4><div className="button-row"><button onClick={() => onImport('markdown')}>导入 Markdown 文件</button><button onClick={() => onImport('directory')}>导入文件夹</button><button onClick={() => onImport('archive')}>导入 ZIP 目录</button><button disabled={busy} onClick={() => exporting('directory')}>导出文件夹 ZIP</button></div>
-					<p className="hint">系统不支持文件夹选择时，请使用 ZIP。JoplinU ZIP 包含原文、附件及完整资料清单（含历史和回收站），按明文备份保管。</p>
+					<p className="hint">Markdown 使用 UTF-8 编码。系统不支持文件夹选择时，请使用 ZIP。JoplinU ZIP 包含原文、附件及完整资料清单（含历史和回收站），按明文备份保管。</p>
 					<h4>完整备份与恢复</h4><p>包括目录、标签、附件、回收站、历史、CRDT 状态和设置。恢复到新增目录，不覆盖已有笔记。</p>
 					<label className="setting-field">备份密码（仅本次使用）<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="加密导出至少 12 个字符；加密恢复请输入原密码" /></label>
 					<div className="button-row"><button className="primary" disabled={busy || password.length < 12} onClick={() => exporting('encrypted')}>导出加密备份</button><button disabled={busy} onClick={() => exporting('backup')}>导出明文备份</button><button disabled={busy} onClick={() => { onImport('backup', password, applyPreferences); setPassword(''); }}>恢复备份</button></div>

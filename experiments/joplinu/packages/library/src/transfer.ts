@@ -4,7 +4,20 @@ import { mapMarkdownDestinations } from '../../markdown/src/index';
 import { createNote, decodeDocument, encodeDocument, folderPath, fromBase64, newId, sha256, toBase64, validateVault, type Vault, type Attachment } from './model';
 
 const LIMIT = 30 * 1024 * 1024;
-const safeName = (value: string) => (value.replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').replace(/^\.+|[. ]+$/g, '').slice(0, 100) || '未命名');
+export async function readMarkdownFile(file: File): Promise<string> {
+	if (file.size > 2 * 1024 * 1024) throw new Error('Markdown 文件超过 2 MiB 上限');
+	const bytes = await file.arrayBuffer();
+	try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+	catch { throw new Error('Markdown 文件不是有效的 UTF-8。原文件未修改，请转换编码后重新导入。'); }
+}
+function safeName(value: string) {
+	const encoder = new TextEncoder(); let size = 0; let name = '';
+	for (const character of value.replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').replace(/^\.+|[. ]+$/g, '')) {
+		const bytes = encoder.encode(character).length; if (size + bytes > 120) break; name += character; size += bytes;
+	}
+	if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) name = '_' + name;
+	return name || '未命名';
+}
 export async function createBackup(vault: Vault) {
 	const payload = JSON.stringify(vault);
 	return JSON.stringify({ format: 'JoplinU backup', version: 1, sha256: await sha256(strToU8(payload)), payload }, null, 2);
@@ -53,15 +66,15 @@ export async function exportDirectory(vault: Vault) {
 	for (const folder of vault.folders) {
 		const parents: string[] = [];
 		let current: typeof folder | undefined = folder;
-		while (current) { parents.unshift(`${safeName(current.name)}~${current.id.slice(0, 8)}`); current = vault.folders.find(f => f.id === current!.parentId); }
+		while (current) { parents.unshift(`${safeName(current.name)}~${current.id}`); current = vault.folders.find(f => f.id === current!.parentId); }
 		entries[parents.join('/') + '/'] = new Uint8Array();
 	}
 	for (const note of vault.notes.filter(note => !note.deletedAt)) {
 		const parents: string[] = [];
 		let current = vault.folders.find(folder => folder.id === note.folderId);
-		while (current) { parents.unshift(`${safeName(current.name)}~${current.id.slice(0, 8)}`); current = vault.folders.find(folder => folder.id === current!.parentId); }
+		while (current) { parents.unshift(`${safeName(current.name)}~${current.id}`); current = vault.folders.find(folder => folder.id === current!.parentId); }
 		const document = decodeDocument(note.state);
-		try { entries[[...parents, `${safeName(note.title)}~${note.id.slice(0, 8)}.md`].join('/')] = strToU8(document.source); }
+		try { entries[[...parents, `${safeName(note.title)}~${note.id}.md`].join('/')] = strToU8(document.source); }
 		finally { document.destroy(); }
 	}
 	// A full manifest makes this archive lossless in JoplinU, while .md files remain readable without it.
@@ -124,7 +137,7 @@ export async function importDirectoryFiles(current: Vault, files: { path: string
 	if (paths.size !== files.length) throw new Error('文件夹包含重复路径');
 	for (const path of paths.keys()) if (!path || /(^\/|\\|^[a-zA-Z]:|(^|\/)\.\.?(\/|$))/.test(path)) throw new Error('文件夹包含危险路径');
 	const markdown = files.filter(entry => /\.(md|markdown|txt)$/i.test(entry.path));
-	const texts = await Promise.all(markdown.map(async entry => ({ path: entry.path, source: await entry.file.text() })));
+	const texts = await Promise.all(markdown.map(async entry => ({ path: entry.path, source: await readMarkdownFile(entry.file) })));
 	const result = importMarkdownFiles(current, texts);
 	const imported = result.notes.slice(current.notes.length);
 	const notes = new Map(markdown.map((entry, index) => [entry.path, imported[index]!.id]));
