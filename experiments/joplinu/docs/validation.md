@@ -44,11 +44,17 @@ Vitest 在当前机器构建含中文、标题、段落与加粗的 Markdown，�
 ## 未验证与阶段门槛
 
 - Android APK、WebView、真实中文输入法、软键盘、旋转、触摸表格、系统长按与生命周期均未验证。合成 composition 测试不能替代真机。
-- Electron、Linux / Windows 安装包和多窗口均未构建。
+- 新增 Electron 平台壳，本地开发程序与 linux-unpacked 目录程序均已启动并通过资源 / renderer 隔离检查。RPM / APK 构建以本轮专用 CI 的实际结果为准；Windows 与 macOS 包、多窗口尚未验证。
 - SQLite 原子保存、崩溃恢复和历史版本尚未实现。会话刷新会丢失内容，必须先导出。
 - OSS / S3 Provider、真实 OSS / MinIO、凭据安全存储、E2EE、快照 / 新设备恢复、迁移、回滚检测和附件 GC 尚未实现，未执行任何云存储读写。
 - Shiki / Mermaid、Live Preview 块 widgets、直接富文本公式编辑、资源加载、完整上下文菜单尚未实现。
 - 复杂嵌套与格式并发可能文本收敛却语法不合法；没有声称解决所有语义冲突。CRLF / 转义 / 原子节点的精确选区，以及组合输入取消与多窗口同时编辑仍需覆盖。
-- 新增了原型专用 GitHub Actions；远端流水线状态需在 PR 中单独确认，本地通过不代表远端已经运行。
+- 新增 RPM / APK workflow 并调用原型检查 workflow，实际流水线与签名自测结果在 Actions 中确认；本地通过不代表远端成功。
 
 **结论：已交付可运行、经过测试的阶段 1 概念验证；统一文档模型的完整验收门槛仍开放。先补完保真、真实中文 IME 和性能证据，再开始完整同步开发。**
+
+## 原生构建增量
+
+新增 4 项 Node packaging-helper 测试，覆盖 Electron 资源路径越界、部分签名配置拒绝、PR 上下文禁用正式密钥和 unsigned APK 字节保留。Capacitor sync 已发现 filesystem / share 两个实际插件，Kotlin Activity 和 SDK / Gradle 版本纳入构建。新增运行时许可证清单，构建资源可离线加载。
+
+Electron 开发与 linux-unpacked 程序均通过 Playwright 实际启动；测试进程在此云环境使用 headless / no-sandbox，生产启动器没有添加这些测试参数。RPM / APK 的 CI 同时运行临时密钥真实签名验签，测试副本不会作为正式产物发布。详见 [构建与签名](builds.md)。

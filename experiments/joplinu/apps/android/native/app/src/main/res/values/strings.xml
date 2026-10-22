@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JoplinU</string>
+    <string name="title_activity_main">JoplinU</string>
+    <string name="package_name">org.joplinu.app</string>
+    <string name="custom_url_scheme">org.joplinu.app</string>
+</resources>

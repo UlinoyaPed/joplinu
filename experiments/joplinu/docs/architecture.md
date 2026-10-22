@@ -6,7 +6,7 @@
 
 目标仓库 `UlinoyaPed/joplinu` 默认分支 `dev`，起点 `585ec251b056eb0665f6a2e0eee4e012b32e2f6e`（Doc: Auto-update documentation）。远端检查时只有 `dev` 分支。本地浅克隆初始工作区干净。它已经包含完整 Joplin 工程：根 Yarn 4.16 workspace，Electron 桌面、React Native 移动端、CodeMirror / ProseMirror 编辑器、SQLite、本地模型、同步和加密实现，并非空的新工程。没有发现 AGENTS.md；读取并遵循根 CLAUDE.md 中适用的工程约定。
 
-保留所有原有应用、配置、许可证、资源与数据路径。新工程暂置于 `experiments/joplinu/`，以独立 npm workspace、锁文件和严格 tsconfig 验证新架构，避免触发旧工程全部原生依赖安装。它不属于旧根 workspace，不导入任何 `@joplin/*` 模块。根 TypeScript 排除该目录，新工程自行检查。原型成功后可以在单独 PR 中提升为正式 apps/packages 工程；现在不迁移旧项目，也不改旧数据库。
+保留原有应用、许可证、资源与数据路径。后续按用户明确要求移除了旧 Joplin 机器人、构建 workflow 和开发说明，根 README / AGENTS 改为 JoplinU 入口。新工程暂置于 `experiments/joplinu/`，以独立 npm workspace、锁文件和严格 tsconfig 验证新架构，避免触发旧工程全部原生依赖安装。它不属于旧根 workspace，不导入任何 `@joplin/*` 模块。根 TypeScript 排除该目录，新工程自行检查。原型成功后可以在单独 PR 中提升为正式 apps/packages 工程；现在不迁移旧项目，也不改旧数据库。
 
 参考并读取了原有 `packages/editor/CodeMirror/extensions/rendering/`、`ProseMirror/schema.ts` 附近的模块结构、`ProseMirror/utils/UndoStackSynchronizer.ts`、`packages/lib/Synchronizer.ts`、`readme/dev/spec/{sync,sync_scroll}.md`、`readme/dev/spec/e2ee/native_encryption.md`。采用其分层、选区避让和源码位置映射经验，没有复制实现或同步协议。根 LICENSE 默认 AGPL-3.0-or-later 继续适用；未复用 Joplin 商标图标。
 
@@ -28,7 +28,7 @@ flowchart TD
   Storage --> S3[独立 S3 Provider]
 ```
 
-当前实现只有 `apps/playground`、`packages/document`、`packages/editor` 和 `packages/markdown`。其余是后续设计边界，不能作为已实现功能。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
+当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。数据库、同步、加密和存储 Provider 仍是后续设计边界。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
 
 业务核心不能依赖 Electron、Capacitor、DOM、SDK 或应用全局状态。编辑器可以依赖 DOM，Markdown 解析与 HTML 字符串生成不依赖浏览器。云 SDK 只能位于各自 Provider。跨进程调用使用逐项校验的白名单 IPC，禁止通用执行 / 任意文件路径代理。
 
@@ -72,13 +72,13 @@ Shiki 与 Mermaid 尚未加入原型，代码当前保留为安全文本。后�
 
 实际依赖审计后将 Vitest 从 3.2 系列升级至 5.0.5（修复 mocker / tinypool 已知问题），KaTeX 从 0.16 系列升级至 0.19.0（修复 trust 限制受既有原型污染绕过的问题）。remark-math / rehype-katex 仍声明旧 KaTeX 范围，因此使用显式 overrides 统一到直接依赖版本，并以类型检查、数学安全测试和实际浏览器渲染验证兼容性，不能只强制版本而不运行验证。
 
-## ADR-005：SQLite 与平台壳（阶段 2 / 5，未实现）
+## ADR-005：SQLite 与平台壳（SQLite 未实现；最小平台壳已建立）
 
 SQLite 接口返回 Promise、串行写队列。桌面数据库运行于主进程 / worker，renderer 不持有文件系统权限；Android 用 Kotlin SQLite 插件并使用 Android Keystore 保护凭据。本地事务同时写入 `document_updates`、本地提交记录和未来上传 outbox，再更新「已保存到本地」状态；持久化失败不得展示已保存。恢复先验证基线与更新校验，再重放 Yjs。阶段 1 只有会话内存，没有伪装为 SQLite 的 localStorage。
 
 历史版本是加密 / 本地 Yjs 状态点和 Markdown 导出，不等同于进程内 UndoManager。迁移 schema 必须备份并可回滚；多窗口由统一文档服务分发更新，避免各窗口争写快照。全文索引仅存在本地，正文、标题、标签和组织信息均不上传明文。
 
-Electron 开启 sandbox/contextIsolation，关闭 nodeIntegration，拒绝窗口导航与非白名单窗口创建，使用最小 preload IPC。系统文件选择、拖放、附件授权和资源协议在平台层处理。Capacitor 只共享 React / 编辑器核心，不沿用旧 React Native app。Android WorkManager 只传输已加密且持久化的 outbox / inbox 字节；需要解锁密钥、运行 Yjs、完成合并的任务在前台引擎执行，不假设后台 JS 活跃。后台成功下载不等于已经合并。
+为满足用户新增的 RPM / APK 构建要求，本轮提前建立最小平台壳，不改变文档模型验收门槛。Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，使用限定根目录的 joplinu 协议加载随包静态资源，拒绝外部导航、新窗口与权限请求；当前不暴露 preload 或 Node IPC。后续原生能力仍须经过类型化白名单。系统文件选择、拖放、附件授权和资源协议在平台层处理。Capacitor 只共享 React / 编辑器核心，不沿用旧 React Native app。Android WorkManager 只传输已加密且持久化的 outbox / inbox 字节；需要解锁密钥、运行 Yjs、完成合并的任务在前台引擎执行，不假设后台 JS 活跃。后台成功下载不等于已经合并。
 
 ## ADR-006：OSS / S3 统一语义（阶段 3，未实现）
 

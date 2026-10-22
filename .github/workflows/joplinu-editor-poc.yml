@@ -1,10 +1,7 @@
-name: JoplinU editor prototype
+name: JoplinU checks
 
 on:
-  push:
-    paths: ['experiments/joplinu/**', '.github/workflows/joplinu-editor-poc.yml']
-  pull_request:
-    paths: ['experiments/joplinu/**', '.github/workflows/joplinu-editor-poc.yml']
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -27,6 +24,7 @@ jobs:
       - run: npm audit --audit-level=low
       - run: npm run build
       - run: npm test
+      - run: npm run test:packaging
       - run: npx playwright install --with-deps chromium
       - name: Browser tests
         run: |

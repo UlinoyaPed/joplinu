@@ -1,0 +1,20 @@
+module.exports = {
+	appId: 'org.joplinu.app',
+	productName: 'JoplinU',
+	directories: { app: 'apps/desktop', output: 'artifacts/desktop', buildResources: 'apps/desktop/resources' },
+	files: ['package.json', 'main.cjs', 'assets.cjs'],
+	extraResources: [{ from: 'dist', to: 'web' }, { from: '../../LICENSE', to: 'LICENSE' }],
+	asar: true,
+	npmRebuild: false,
+	artifactName: 'joplinu-${version}-${arch}.${ext}',
+	linux: {
+		target: [{ target: 'rpm', arch: ['x64'] }],
+		executableName: 'joplinu',
+		category: 'Office',
+		icon: 'apps/desktop/resources/icon.png',
+		maintainer: 'JoplinU contributors',
+		vendor: 'JoplinU',
+	},
+	rpm: { depends: ['gtk3', 'libnotify', 'nss', 'libXScrnSaver', 'libXtst', 'xdg-utils', 'at-spi2-core', 'libdrm', 'mesa-libgbm'] },
+	publish: null,
+};

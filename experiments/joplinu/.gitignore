@@ -3,3 +3,11 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+artifacts/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.asc
+*.signing.json
+public/THIRD_PARTY_NOTICES.txt

@@ -1,0 +1,127 @@
+name: JoplinU RPM and APK
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+    paths: ['experiments/joplinu/**', '.github/workflows/joplinu-*.yml']
+  pull_request:
+    paths: ['experiments/joplinu/**', '.github/workflows/joplinu-*.yml']
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign release artifacts with configured repository secrets
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: joplinu-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  checks:
+    uses: ./.github/workflows/joplinu-editor-poc.yml
+
+  rpm:
+    needs: checks
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: experiments/joplinu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: experiments/joplinu/package-lock.json
+      - name: Install RPM and Electron runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm gnupg xvfb libgtk-3-0t64 libnss3 libgbm1 libasound2t64
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - name: Build and optionally sign RPM
+        env:
+          RPM_GPG_PRIVATE_KEY_BASE64: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_PRIVATE_KEY_BASE64 || '' }}
+          RPM_GPG_KEY_ID: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_KEY_ID || '' }}
+          RPM_GPG_PASSPHRASE: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.RPM_GPG_PASSPHRASE || '' }}
+        run: npm run build:rpm
+      - name: Launch the packaged Electron application
+        env:
+          JOPLINU_ELECTRON_EXECUTABLE: ${{ github.workspace }}/experiments/joplinu/artifacts/desktop/linux-unpacked/joplinu
+        run: xvfb-run -a npm run test:desktop
+      - name: Inspect RPM package
+        run: rpm -qp --queryformat '%{NAME} %{VERSION} %{ARCH}\n' artifacts/desktop/*.rpm
+      - name: Test RPM signing with a temporary key
+        run: node scripts/signing-smoke.mjs rpm artifacts/desktop/*.rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joplinu-linux-x64-rpm
+          if-no-files-found: error
+          path: |
+            experiments/joplinu/artifacts/desktop/*.rpm
+            experiments/joplinu/artifacts/desktop/*.asc
+            experiments/joplinu/artifacts/desktop/SHA256SUMS
+            experiments/joplinu/artifacts/desktop/build-info.json
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: joplinu-electron-diagnostics
+          path: experiments/joplinu/test-results/
+
+  apk:
+    needs: checks
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: experiments/joplinu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: experiments/joplinu/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --ignore-scripts
+      - name: Build APKs and run Android lint
+        env:
+          JOPLINU_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          npm run build
+          npm run android:sync
+          npm run android:assemble
+      - name: Collect APKs and optionally sign release
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.ANDROID_KEYSTORE_BASE64 || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: node scripts/collect-android.mjs
+      - name: Verify installable debug APK
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/*-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging artifacts/android/*-debug.apk
+      - name: Test release signing with a temporary key
+        run: node scripts/signing-smoke.mjs apk apps/android/native/app/build/outputs/apk/release/app-release-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joplinu-android-apk
+          if-no-files-found: error
+          path: experiments/joplinu/artifacts/android/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: joplinu-android-lint
+          path: experiments/joplinu/apps/android/native/app/build/reports/

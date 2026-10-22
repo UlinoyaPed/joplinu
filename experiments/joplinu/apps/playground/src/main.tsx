@@ -6,6 +6,7 @@ import { MarkdownRenderer } from '../../../packages/markdown/src/index';
 import { createSourceEditor } from '../../../packages/editor/src/codemirror';
 import { createRichEditor } from '../../../packages/editor/src/prosemirror';
 import { sample } from './sample';
+import { exportMarkdown } from '../../../packages/platform/src/export';
 import 'katex/dist/katex.min.css';
 import 'prosemirror-view/style/prosemirror.css';
 import './style.css';
@@ -24,15 +25,6 @@ const modes: { id: Mode; label: string; hint: string }[] = [
 
 function useSource(note: NoteDocument) {
 	return useSyncExternalStore(listener => note.onChange(listener), () => note.source);
-}
-
-function download(text: string, filename: string) {
-	const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
-	const anchor = document.createElement('a');
-	anchor.href = url;
-	anchor.download = filename;
-	anchor.click();
-	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function Peer({ connected }: { connected: boolean }) {
@@ -113,6 +105,10 @@ function App() {
 		sourceEditor.current = editor;
 		return () => { editor.destroy(); sourceEditor.current = null; };
 	}, [mode]);
+
+	const download = (text: string, filename: string) => {
+		void exportMarkdown(text, filename).catch(() => setProblem({ message: '导出失败；当前原文仍在，请重试。', draft: text }));
+	};
 
 	const switchMode = (next: Mode) => {
 		if (primary.isComposing) return;

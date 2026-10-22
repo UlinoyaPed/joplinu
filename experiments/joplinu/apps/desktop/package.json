@@ -1,0 +1,11 @@
+{
+	"name": "joplinu-desktop",
+	"productName": "JoplinU",
+	"version": "0.1.0",
+	"private": true,
+	"description": "JoplinU Markdown editor prototype",
+	"main": "main.cjs",
+	"author": "JoplinU contributors",
+	"homepage": "https://github.com/UlinoyaPed/joplinu",
+	"license": "AGPL-3.0-or-later"
+}

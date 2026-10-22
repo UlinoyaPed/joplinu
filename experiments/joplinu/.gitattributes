@@ -1,0 +1,4 @@
+apps/android/native/gradlew text eol=lf
+apps/android/native/gradlew.bat text eol=crlf
+*.jar -text
+*.png -text
