@@ -49,6 +49,12 @@ describe('local library data safety', () => {
 		const backup = await readBackup(await createBackup(library.vault)); const recovered = decodeDocument(backup.notes[0]!.state); expect(recovered.source).toBe('original保留'); recovered.destroy();
 		storage.fail = false; await library.flush(); expect(library.status).toBe('saved'); library.dispose();
 	});
+	it('rejects history restoration during composition without modifying content or history', async () => {
+		const library = new LibraryController(new MemoryStorage()); await library.open('原文'); const id = library.vault.notes[0]!.id;
+		const document = library.document(id); const owner = {}; document.beginComposition(owner);
+		expect(() => library.restore(id, '其他内容')).toThrow(/结束中文输入/); expect(library.vault.notes[0]!.history).toHaveLength(0); expect(document.source).toBe('原文');
+		document.endComposition(owner); library.dispose();
+	});
 	it('rejects competing writers and corrupt loads without overwriting acknowledged data', async () => {
 		const storage = new MemoryStorage(); const first = new LibraryController(storage); await first.open('base'); await first.flush();
 		const second = new LibraryController(storage); await second.open(); first.document(first.vault.notes[0]!.id).edit([{ from: 0, to: 0, insert: 'first' }]); await first.flush();

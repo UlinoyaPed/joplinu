@@ -71,9 +71,9 @@ export class LibraryController {
 		if (note) this.updateNote(id, { history: this.addHistory(note, this.document(id).source, reason) });
 	}
 	restore(id: string, source: string) {
-		this.checkpoint(id, '恢复前版本');
 		const document = this.document(id);
 		if (document.isComposing) throw new Error('请结束中文输入后恢复版本');
+		this.checkpoint(id, '恢复前版本');
 		const edit = minimalEdit(document.source, source);
 		if (edit) { document.undo.stopCapturing(); document.edit([edit], document.source); }
 	}

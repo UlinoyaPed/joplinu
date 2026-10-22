@@ -4,7 +4,8 @@ const MAX_BYTES = 40 * 1024 * 1024;
 class VaultDatabase {
 	constructor(filename) {
 		this.database = new DatabaseSync(filename);
-		this.database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS vault (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, payload TEXT); INSERT OR IGNORE INTO vault VALUES (1, 0, NULL);');
+		try { this.database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS vault (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, payload TEXT); INSERT OR IGNORE INTO vault VALUES (1, 0, NULL);'); }
+		catch (error) { this.database.close(); throw error; }
 	}
 	read() { return this.database.prepare('SELECT revision, payload FROM vault WHERE id=1').get(); }
 	write({ expectedRevision, payload }) {

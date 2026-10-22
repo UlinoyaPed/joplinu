@@ -30,14 +30,18 @@ function createWindow() {
 
 app.whenReady().then(() => {
 	// Test profiles are isolated through Electron's standard --user-data-dir switch.
-	mkdirSync(app.getPath('userData'), { recursive: true, mode: 0o700 });
-	const database = new VaultDatabase(join(app.getPath('userData'), 'joplinu.sqlite'));
+	let database;
+	try {
+		mkdirSync(app.getPath('userData'), { recursive: true, mode: 0o700 });
+		database = new VaultDatabase(join(app.getPath('userData'), 'joplinu.sqlite'));
+	} catch { /* Open the recovery UI without replacing an unreadable database. */ }
 	const trusted = event => event.senderFrame && event.senderFrame === event.sender.mainFrame && event.senderFrame.url.startsWith('joplinu://app/');
 	for (const method of ['read', 'write', 'check']) ipcMain.handle(`joplinu:database:${method}`, (event, input) => {
 		if (!trusted(event)) throw new Error('Untrusted local database caller');
+		if (!database) throw new Error('无法打开本地 SQLite；原数据未重置，请保留应用数据目录以便恢复。');
 		return database[method](input);
 	});
-	app.once('will-quit', () => database.close());
+	app.once('will-quit', () => database?.close());
 	const root = app.isPackaged ? join(process.resourcesPath, 'web') : resolve(__dirname, '../../dist');
 	protocol.handle('joplinu', async request => {
 		const file = resolveAsset(root, request.url);

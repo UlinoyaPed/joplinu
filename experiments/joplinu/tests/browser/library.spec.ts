@@ -94,6 +94,19 @@ test('rich math edits have a real formula dialog and preserve untouched Markdown
 	await expect(page.getByRole('textbox', { name: '富文本编辑器' }).locator('.katex')).toBeVisible(); await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
+test('an async file import cannot switch away from a different note during composition', async ({ page }) => {
+	await open(page);
+	await page.evaluate(() => { const original = File.prototype.text; File.prototype.text = async function() { if (this.name === 'slow.md') await new Promise<void>(resolve => window.addEventListener('test-release-file-read', () => resolve(), { once: true })); return original.call(this); }; });
+	await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles({ name: 'slow.md', mimeType: 'text/markdown', buffer: Buffer.from('不可打断输入') });
+	await page.getByRole('complementary', { name: '笔记导航' }).getByRole('button', { name: '新建笔记', exact: true }).click();
+	const source = page.getByRole('textbox', { name: 'Markdown 源码' }); await source.click();
+	await source.evaluate(element => element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })));
+	await page.keyboard.insertText('中文'); await page.evaluate(() => window.dispatchEvent(new Event('test-release-file-read'))); await expect(page.getByRole('alert')).toContainText('结束中文输入');
+	await expect(page.getByLabel('笔记标题')).toHaveValue('无标题笔记');
+	await source.evaluate(element => element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文' })));
+	expect((await download(page, '导出 Markdown ↗')).toString()).toBe('中文'); await expect(page.locator('.note-item')).toHaveCount(2);
+});
+
 test('note links navigate in both rendered and rich views', async ({ page }) => {
 	await open(page); await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles([{ name: '起点.md', mimeType: 'text/markdown', buffer: Buffer.from('跳转：') }, { name: '终点.md', mimeType: 'text/markdown', buffer: Buffer.from('目标正文') }]);
 	await page.getByRole('button', { name: '内链', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: /^终点/ }).click(); await page.getByRole('tab', { name: '富文本', exact: true }).click();

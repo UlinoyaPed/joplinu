@@ -30,6 +30,8 @@ Actions 页面中下载 `joplinu-linux-x64-rpm` 和 `joplinu-android-apk` 两个
 
 正式 APK 后续升级必须沿用同一 keystore。debug 包 ID 是 `org.joplinu.app.debug`，正式包 ID 是 `org.joplinu.app`，可以并存。原始密钥需要独立备份，GitHub Secrets 不作为唯一恢复来源。
 
+CI 未配置固定密钥时，debug APK 使用该 runner 生成的开发证书。不同构建可能无法覆盖安装；请先导出完整备份，不要通过卸载或清除应用数据来强行升级。需要持续使用和升级的版本应配置正式 keystore 并使用 release 包。
+
 签名脚本仅在系统临时目录解码私钥，密码通过权限为 0600 的临时文件交给官方工具，完成或失败后清理。APK 使用 Android SDK 的 zipalign / apksigner，检查 16 KiB 页对齐与签名；RPM 使用 GPG / rpmsign，并通过临时 rpm key database 验证。RPM 签名后附带公钥，私钥不会成为 artifact。
 
 每个平台的 CI 还会生成独立、一次性的测试密钥，对安装包副本执行真实签名和验证，随后删除测试密钥和测试副本；发布 artifact 的正式签名状态由仓库 Secrets 决定。测试密钥不充当正式密钥。

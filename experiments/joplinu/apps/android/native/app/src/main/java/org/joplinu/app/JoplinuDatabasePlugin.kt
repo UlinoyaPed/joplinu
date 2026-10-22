@@ -13,7 +13,7 @@ import org.json.JSONObject
 @CapacitorPlugin(name = "JoplinuDatabase")
 class JoplinuDatabasePlugin : Plugin() {
     private val lock = Any()
-    private val helper by lazy {
+    private val helperDelegate = lazy {
         object : SQLiteOpenHelper(context, "joplinu.sqlite", null, 1) {
             override fun onConfigure(db: SQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
             override fun onCreate(db: SQLiteDatabase) {
@@ -24,6 +24,7 @@ class JoplinuDatabasePlugin : Plugin() {
             override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) { throw IllegalStateException("Unsupported database migration") }
         }.also { it.setWriteAheadLoggingEnabled(true) }
     }
+    private val helper get() = helperDelegate.value
 
     @PluginMethod
     fun read(call: PluginCall) = synchronized(lock) {
@@ -88,5 +89,5 @@ class JoplinuDatabasePlugin : Plugin() {
         } catch (_: Exception) { call.reject("SQLite 完整性检查失败") }
     }
 
-    override fun handleOnDestroy() { synchronized(lock) { helper.close() } }
+    override fun handleOnDestroy() { synchronized(lock) { if (helperDelegate.isInitialized()) helper.close() }; super.handleOnDestroy() }
 }

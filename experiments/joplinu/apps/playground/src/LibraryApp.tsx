@@ -40,6 +40,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const pendingImport = useRef<{ kind: ImportKind; password: string; applyPreferences: boolean }>({ kind: 'markdown', password: '', applyPreferences: false });
 	const current = vault.notes.find(note => note.id === selectedId);
 	const noteDocument = current ? controller.document(current.id) : undefined;
+	const activeDocument = useRef(noteDocument); activeDocument.current = noteDocument;
 	const notes = useMemo(() => searchableNotes(vault, query, query.trim() ? null : folderId, trash), [vault.notes, vault.folders, p.sort, p.language, query, folderId, trash]);
 	const headings = useMemo(() => noteDocument && p.toc ? parseMarkdown(noteDocument.source).children.filter(node => node.type === 'heading').map(node => ({ text: words(node), depth: node.type === 'heading' ? node.depth : 1, offset: node.position?.start.offset ?? 0 })) : [], [noteDocument?.source, p.toc]);
 	const assets = useMemo(() => new Map(vault.attachments.map(attachment => [attachment.id, { url: URL.createObjectURL(new Blob([new Uint8Array(fromBase64(attachment.data))], { type: attachment.mime })), mime: attachment.mime }])), [vault.attachments]);
@@ -68,22 +69,22 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const run = (action: () => void | Promise<void>) => { setError(''); void Promise.resolve().then(action).catch(problem => setError(problem instanceof Error ? problem.message : '操作失败；原数据已保留')); };
 	const close = () => setModal(undefined);
 	const select = (note: Note) => {
-		if (noteDocument?.isComposing) { setNotice('请先结束中文输入再切换笔记'); return; }
+		if (activeDocument.current?.isComposing) { setNotice('请先结束中文输入再切换笔记'); return; }
 		setSelectedId(note.id); setSidebar(false); setHistoryId(undefined);
 	};
 	const openNote = (id: string) => {
-		if (noteDocument?.isComposing) return;
+		if (activeDocument.current?.isComposing) return;
 		const note = controller.vault.notes.find(note => note.id === id && !note.deletedAt);
 		if (!note) { setNotice('链接的笔记不存在或已在回收站中'); return; }
 		setTrash(false); setFolderId(note.folderId); setQuery(''); select(note);
 	};
 	const activateFolder = (id: string | null, showTrash = false) => {
-		if (noteDocument?.isComposing) { setNotice('请先结束中文输入'); return; }
+		if (activeDocument.current?.isComposing) { setNotice('请先结束中文输入'); return; }
 		setFolderId(id); setTrash(showTrash); setQuery('');
 		if (!current || !!current.deletedAt !== showTrash || (id !== null && current.folderId !== id)) setSelectedId(searchableNotes(controller.vault, '', id, showTrash)[0]?.id);
 	};
 	const addNote = () => {
-		if (noteDocument?.isComposing) return;
+		if (activeDocument.current?.isComposing) return;
 		const note = createNote(t('无标题笔记', 'Untitled note'), folderId);
 		controller.change({ ...controller.vault, notes: [...controller.vault.notes, note] });
 		setTrash(false); setQuery(''); select(note);
@@ -117,7 +118,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 				const selected = files.filter(file => /\.(md|markdown|txt)$/i.test(file.name));
 				if (!selected.length || selected.length > 1000 || selected.reduce((size, file) => size + file.size, 0) > 20 * 1024 * 1024 || selected.some(file => file.size > 2 * 1024 * 1024)) throw new Error('支持最多 1000 个 Markdown 文件，每个不超过 2 MiB，总计不超过 20 MiB');
 				const values = await Promise.all(selected.map(async file => ({ path: kind === 'directory' ? file.webkitRelativePath || file.name : file.name, source: await file.text() })));
-				if (noteDocument?.isComposing) throw new Error('请结束中文输入后重新导入');
+				if (activeDocument.current?.isComposing) throw new Error('请结束中文输入后重新导入');
 				const before = controller.vault.notes.length; let next: Vault;
 				if (kind === 'markdown' && values.length === 1) next = { ...controller.vault, notes: [...controller.vault.notes, createNote(selected[0]!.name.replace(/\.(md|markdown|txt)$/i, '').slice(0, 500), folderId, values[0]!.source)] };
 				else { const baseline = controller.vault; next = await importDirectoryFiles(baseline, files.map(file => ({ path: kind === 'directory' ? file.webkitRelativePath || file.name : file.name, file }))); if (controller.vault !== baseline) throw new Error('导入期间资料已改变，请重试；原文已保留'); }

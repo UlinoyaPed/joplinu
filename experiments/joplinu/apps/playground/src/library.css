@@ -67,6 +67,7 @@ button.danger { color: #c2594c; }
 .rich-task > div { flex: 1; min-width: 0; }
 .rich-task p { margin-block: 6px; }
 .math-source { background: var(--surface-alt); color: var(--text); }
+.ProseMirror span.math-source { display: inline-block; vertical-align: baseline; min-width: 24px; min-height: 24px; }
 .math-dialog-preview { padding: 24px; overflow: auto; text-align: center; }
 textarea { font: inherit; color: var(--text); background: var(--surface-alt); border: 1px solid var(--border); padding: 12px; border-radius: 7px; width: 100%; resize: vertical; }
 .editor-context-menu { position: fixed; z-index: 8; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; width: 205px; padding: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 35px #0003; border-radius: 8px; }
