@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { LibraryController } from '../../../packages/library/src/controller';
-import { createNote, folderPath, formatDate, fromBase64, moveFolder, validatePreferences, type Note, type Vault } from '../../../packages/library/src/model';
+import { createNote, folderPath, formatDate, fromBase64, moveFolder, validatePreferences, type Note, type Preferences, type Vault } from '../../../packages/library/src/model';
 import { createBackup, exportDirectory, importArchive, importDirectoryFiles, makeAttachment, mergeBackup, readBackup, readMarkdownFile, searchableNotes } from '../../../packages/library/src/transfer';
 import { encryptBackup, decryptBackup } from '../../../packages/crypto/src/backup';
 import { parseMarkdown } from '../../../packages/markdown/src/index';
@@ -8,10 +8,12 @@ import { exportFile, exportMarkdown } from '../../../packages/platform/src/expor
 import { Editor } from './Editor';
 import { Dialog, DialogErrorContext } from './Dialog';
 import { FolderDialog, FolderTree, MetadataDialog } from './LibraryDialogs';
+import { NoteList } from './NoteList';
+import { PaneResizer } from './PaneResizer';
 import { Settings, type ExportKind, type ImportKind } from './Settings';
 import type { RootContent } from 'mdast';
 
-type Modal = { kind: 'settings' | 'attachments' | 'link' | 'metadata' | 'history' | 'move' | 'empty-trash' | 'outline' } | { kind: 'folder'; id?: string } | { kind: 'attachment'; id: string };
+type Modal = { kind: 'settings' | 'attachments' | 'link' | 'metadata' | 'history' | 'empty-trash' | 'outline' } | { kind: 'folder'; id?: string } | { kind: 'attachment'; id: string } | { kind: 'move'; ids: string[] } | { kind: 'note-menu'; id: string };
 const words = (node: RootContent): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => words(child as RootContent)).join('') : '';
 const escapeLabel = (text: string) => text.replace(/[\\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ');
 
@@ -26,6 +28,9 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const [trash, setTrash] = useState(false);
 	const [query, setQuery] = useState('');
 	const [sidebar, setSidebar] = useState(false);
+	const [mobileView, setMobileView] = useState<'editor' | 'notes'>('editor');
+	const [tag, setTag] = useState<string>();
+	const [checked, setChecked] = useState(new Set<string>());
 	const [modal, setModal] = useState<Modal>();
 	const [error, setError] = useState('');
 	const [notice, setNotice] = useState('');
@@ -37,11 +42,35 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const otherInput = useRef<HTMLInputElement>(null);
 	const attachmentInput = useRef<HTMLInputElement>(null);
 	const searchInput = useRef<HTMLInputElement>(null);
+	const navigationRef = useRef<HTMLElement>(null);
 	const pendingImport = useRef<{ kind: ImportKind; password: string; applyPreferences: boolean }>({ kind: 'markdown', password: '', applyPreferences: false });
 	const current = vault.notes.find(note => note.id === selectedId);
 	const noteDocument = current ? controller.document(current.id) : undefined;
 	const activeDocument = useRef(noteDocument); activeDocument.current = noteDocument;
-	const notes = useMemo(() => searchableNotes(vault, query, query.trim() ? null : folderId, trash), [vault.notes, vault.folders, p.sort, p.language, query, folderId, trash]);
+	const notes = useMemo(() => searchableNotes(vault, query, query.trim() ? null : folderId, trash, tag), [vault.notes, vault.folders, p.sort, p.language, query, folderId, trash, tag]);
+	const tags = useMemo(() => { const counts = new Map<string, number>(); for (const note of vault.notes) if (!note.deletedAt) for (const name of new Set(note.tags)) counts.set(name, (counts.get(name) ?? 0) + 1); return [...counts].sort(([a], [b]) => a.localeCompare(b, p.language)); }, [vault.notes, p.language]);
+	useEffect(() => setChecked(new Set()), [folderId, trash, query, tag]);
+	useEffect(() => {
+		const media = window.matchMedia('(max-width: 1100px)');
+		const resized = () => setSidebar(false);
+		media.addEventListener('change', resized); return () => media.removeEventListener('change', resized);
+	}, []);
+	useEffect(() => {
+		if (!sidebar || modal || !window.matchMedia('(max-width: 1100px)').matches) return;
+		const previous = document.activeElement as HTMLElement | null;
+		const panes = [...document.querySelectorAll<HTMLElement>('.note-list-pane, .library-main')];
+		for (const pane of panes) pane.inert = true;
+		const focusable = () => [...navigationRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select') ?? []].filter(element => element.getClientRects().length > 0);
+		focusable()[0]?.focus();
+		const tab = (event: KeyboardEvent) => {
+			if (event.key !== 'Tab' || document.querySelector('dialog[open]')) return;
+			const targets = focusable(); const next = event.shiftKey ? targets.at(-1) : targets[0];
+			if (document.activeElement === (event.shiftKey ? targets[0] : targets.at(-1))) { event.preventDefault(); next?.focus(); }
+		};
+		document.addEventListener('keydown', tab);
+		return () => { for (const pane of panes) pane.inert = false; document.removeEventListener('keydown', tab); if (previous?.getClientRects().length) previous.focus(); };
+	}, [sidebar, modal]);
+	const updatePreferences = (fields: Partial<Preferences>) => controller.change({ ...controller.vault, preferences: { ...controller.vault.preferences, ...fields } });
 	const headings = useMemo(() => noteDocument && p.toc ? parseMarkdown(noteDocument.source).children.filter(node => node.type === 'heading').map(node => ({ text: words(node), depth: node.type === 'heading' ? node.depth : 1, offset: node.position?.start.offset ?? 0 })) : [], [noteDocument?.source, p.toc]);
 	const assets = useMemo(() => new Map(vault.attachments.map(attachment => [attachment.id, { url: URL.createObjectURL(new Blob([new Uint8Array(fromBase64(attachment.data))], { type: attachment.mime })), mime: attachment.mime }])), [vault.attachments]);
 	useEffect(() => () => { for (const asset of assets.values()) URL.revokeObjectURL(asset.url); }, [assets]);
@@ -58,34 +87,43 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	}, [controller]);
 	useEffect(() => {
 		const key = (event: KeyboardEvent) => {
+			if (event.key === 'Escape' && !document.querySelector('dialog[open]')) setSidebar(false);
 			if (!(event.ctrlKey || event.metaKey) || noteDocument?.isComposing) return;
 			if (event.key.toLowerCase() === 's') { event.preventDefault(); void controller.flush(); }
 			if (document.querySelector('dialog[open]')) return;
-			if (event.shiftKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setSidebar(true); setTimeout(() => searchInput.current?.focus(), 0); }
+			if (event.shiftKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setSidebar(false); setMobileView('notes'); updatePreferences({ showNoteList: true }); setTimeout(() => searchInput.current?.focus(), 0); }
+			if (event.key.toLowerCase() === 'n' && !event.shiftKey) { event.preventDefault(); addNote(); }
+			if (event.shiftKey && event.key.toLowerCase() === 'l') { event.preventDefault(); updatePreferences({ showNoteList: !controller.vault.preferences.showNoteList }); }
 			if (event.key === ',') { event.preventDefault(); setModal({ kind: 'settings' }); }
 		};
 		window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
-	}, [controller, noteDocument]);
+	}, [controller, noteDocument, folderId, tag, p.language]);
 	const run = (action: () => void | Promise<void>) => { setError(''); void Promise.resolve().then(action).catch(problem => setError(problem instanceof Error ? problem.message : '操作失败；原数据已保留')); };
 	const close = () => setModal(undefined);
 	const select = (note: Note) => {
 		if (activeDocument.current?.isComposing) { setNotice('请先结束中文输入再切换笔记'); return; }
-		setSelectedId(note.id); setSidebar(false); setHistoryId(undefined);
+		setSelectedId(note.id); setSidebar(false); setMobileView('editor'); setHistoryId(undefined);
 	};
 	const openNote = (id: string) => {
 		if (activeDocument.current?.isComposing) return;
 		const note = controller.vault.notes.find(note => note.id === id && !note.deletedAt);
 		if (!note) { setNotice('链接的笔记不存在或已在回收站中'); return; }
-		setTrash(false); setFolderId(note.folderId); setQuery(''); select(note);
+		setTrash(false); setFolderId(note.folderId); setTag(undefined); setQuery(''); select(note);
 	};
 	const activateFolder = (id: string | null, showTrash = false) => {
 		if (activeDocument.current?.isComposing) { setNotice('请先结束中文输入'); return; }
-		setFolderId(id); setTrash(showTrash); setQuery('');
+		setFolderId(id); setTrash(showTrash); setTag(undefined); setQuery(''); setSidebar(false); setMobileView('notes'); if (!p.showNoteList) updatePreferences({ showNoteList: true });
 		if (!current || !!current.deletedAt !== showTrash || (id !== null && current.folderId !== id)) setSelectedId(searchableNotes(controller.vault, '', id, showTrash)[0]?.id);
+	};
+	const activateTag = (name: string) => {
+		if (activeDocument.current?.isComposing) { setNotice('请先结束中文输入'); return; }
+		setTag(name); setFolderId(null); setTrash(false); setQuery(''); setSidebar(false); setMobileView('notes');
+		if (!p.showNoteList) updatePreferences({ showNoteList: true });
+		if (!current || current.deletedAt || !current.tags.includes(name)) setSelectedId(searchableNotes(controller.vault, '', null, false, name)[0]?.id);
 	};
 	const addNote = () => {
 		if (activeDocument.current?.isComposing) return;
-		const note = createNote(t('无标题笔记', 'Untitled note'), folderId);
+		const note = { ...createNote(t('无标题笔记', 'Untitled note'), folderId), tags: tag ? [tag] : [] };
 		controller.change({ ...controller.vault, notes: [...controller.vault.notes, note] });
 		setTrash(false); setQuery(''); select(note);
 	};
@@ -160,39 +198,45 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 			if (noteId) controller.updateNote(noteId, { folderId: targetFolder }); else if (draggedFolder) controller.change(moveFolder(controller.vault, draggedFolder, targetFolder));
 		});
 	};
+	const trashNotes = (ids: string[], deleted: boolean) => run(() => { controller.trashNotes(ids, deleted); setChecked(new Set()); setNotice(deleted ? '已移入回收站，可以恢复' : '已恢复笔记'); });
+	const listTitle = query.trim() ? t('搜索结果', 'Search results') : tag ? `# ${tag}` : trash ? t('回收站', 'Trash') : folderPath(vault, folderId).at(-1) ?? t('全部笔记', 'All notes');
+	const menuNote = modal?.kind === 'note-menu' ? vault.notes.find(note => note.id === modal.id) : undefined;
 	const saveLabel = controller.status === 'saved' ? `已保存到本地 · ${controller.storage.kind}` : controller.status === 'error' ? '保存失败 · 请导出备份' : controller.status === 'saving' ? '正在保存…' : '本地修改待保存';
 	const historyEntry = current?.history.find(entry => entry.id === historyId);
 	const viewedAttachment = modal?.kind === 'attachment' ? vault.attachments.find(item => item.id === modal.id) : undefined;
-	return <DialogErrorContext.Provider value={error || controller.error}><div className="library-shell">
+	const feedback = <>{(error || controller.error) && <div role="alert" className="problem">{error || controller.error}<button onClick={() => run(() => exportData('backup'))}>导出当前备份</button>{error && <button onClick={() => setError('')}>关闭提示</button>}</div>}
+			{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')}>×</button></div>}{busy && <div role="status" className="notice">正在处理文件，请稍候…</div>}</>;
+	return <DialogErrorContext.Provider value={error || controller.error}><div className={`library-shell ${!p.showSidebar ? 'sidebar-hidden' : ''} ${!p.showNoteList ? 'list-hidden' : ''} mobile-${mobileView}`} style={{ '--sidebar-width': `${p.sidebarWidth}px`, '--list-width': `${p.noteListWidth}px` } as React.CSSProperties}>
 		{sidebar && <button className="navigation-scrim" aria-label="关闭笔记导航" onClick={() => setSidebar(false)} />}
-		<aside className={`library-sidebar ${sidebar ? 'open' : ''}`} aria-label="笔记导航">
+		<aside ref={navigationRef} className={`library-sidebar ${sidebar ? 'open' : ''}`} aria-label="笔记导航">
 			<div className="sidebar-brand"><a className="brand" href="#" onClick={event => event.preventDefault()}><span className="brand-icon">U</span>Joplin<span>U</span></a><button aria-label="设置" onClick={() => setModal({ kind: 'settings' })}>⚙</button></div>
-			<input ref={searchInput} className="library-search" type="search" aria-label="搜索笔记" placeholder={t('搜索标题、正文或标签…', 'Search notes…')} value={query} onChange={event => setQuery(event.target.value)} />
+			<button className="sidebar-new-note" aria-label="新建笔记" onClick={addNote}>{t('＋ 新建笔记', '+ New note')}</button><div className="sidebar-scroll">
 			<div className="nav-heading"><span>{t('文件夹', 'Folders')}</span><button aria-label="新建文件夹" onClick={() => setModal({ kind: 'folder' })}>＋</button></div>
-			<button className={`all-notes ${folderId === null && !trash ? 'selected' : ''}`} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, null)} onClick={() => activateFolder(null)}>{t('全部笔记', 'All notes')}<small>{vault.notes.filter(note => !note.deletedAt).length}</small></button>
+			<button className={`all-notes ${folderId === null && !trash && !tag ? 'selected' : ''}`} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, null)} onClick={() => activateFolder(null)}>{t('全部笔记', 'All notes')}<small>{vault.notes.filter(note => !note.deletedAt).length}</small></button>
 			<FolderTree vault={vault} selected={trash ? null : folderId} onSelect={activateFolder} onManage={id => setModal({ kind: 'folder', id })} onDrop={drop} />
 			<button className={`all-notes ${trash ? 'selected' : ''}`} onClick={() => activateFolder(null, true)}>{t('回收站', 'Trash')}<small>{vault.notes.filter(note => note.deletedAt).length}</small></button>
-			<div className="nav-heading"><span>{trash ? t('已删除', 'Deleted') : folderId ? folderPath(vault, folderId).at(-1) : t('笔记', 'Notes')}</span>{!trash && <button aria-label="新建笔记" onClick={addNote}>＋</button>}</div>
-			<div className="note-list" aria-label="笔记列表">{notes.length ? notes.map(note => <button key={note.id} className={selectedId === note.id ? 'note-item selected' : 'note-item'} draggable={!trash} onDragStart={event => event.dataTransfer.setData('application/x-joplinu-note', note.id)} onClick={() => select(note)}><strong>{note.title || '无标题笔记'}</strong><time>{formatDate(note.updatedAt, p)}</time>{note.tags.length > 0 && <span>{note.tags.map(tag => `#${tag}`).join(' ')}</span>}</button>) : <p className="empty-list">{query ? '没有匹配的笔记' : '此处还没有笔记'}</p>}</div>
-			{trash && <button className="danger" disabled={!notes.length} onClick={() => { setPermanentConfirmation(''); setModal({ kind: 'empty-trash' }); }}>清空回收站</button>}
+			<div className="nav-heading"><span>{t('标签', 'Tags')}</span></div><nav className="tag-list" aria-label="笔记标签">{tags.length ? tags.map(([name, count]) => <button key={name} className={tag === name ? 'selected' : ''} aria-pressed={tag === name} onClick={() => activateTag(name)}><span># {name}</span><small>{count}</small></button>) : <p className="sidebar-hint">在笔记“信息”中添加标签</p>}</nav></div>
 			<div className="library-storage"><span className="status-dot" />{controller.storage.kind} · {t('本地笔记库', 'Local library')}<small>{t('云同步未连接', 'Cloud not connected')}</small></div>
 		</aside>
+		<PaneResizer label="调整文件夹栏宽度" property="--sidebar-width" value={p.sidebarWidth} min={180} max={340} initial={230} onChange={sidebarWidth => updatePreferences({ sidebarWidth })} />
+		<NoteList feedback={feedback} onReturn={() => { if (!noteDocument?.isComposing) setMobileView('editor'); }} notes={notes} selectedId={selectedId} title={listTitle} preferences={p} query={query} searchRef={searchInput} onQuery={setQuery} checked={checked} onChecked={setChecked} onSelect={select} onCreate={addNote} onMenu={note => setModal({ kind: 'note-menu', id: note.id })} onNavigation={() => setSidebar(true)} onMove={ids => setModal({ kind: 'move', ids })} onTrash={trashNotes} trash={trash} onEmptyTrash={() => { setPermanentConfirmation(''); setModal({ kind: 'empty-trash' }); }} onSort={sort => updatePreferences({ sort })} />
+		<PaneResizer label="调整笔记列表宽度" property="--list-width" value={p.noteListWidth} min={220} max={420} initial={280} onChange={noteListWidth => updatePreferences({ noteListWidth })} />
 		<main className="library-main" onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }} onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); addAttachments([...event.dataTransfer.files]); } }}>
-			<header className="library-topbar"><button className="mobile-navigation" aria-label="打开笔记导航" onClick={() => setSidebar(true)}>☰</button><div className="breadcrumb">{current ? folderPath(vault, current.folderId).join(' / ') || t('未分类', 'Unfiled') : t('个人笔记库', 'My library')}</div><div className="top-actions"><button onClick={() => requestImport('markdown')}>{t('导入', 'Import')}</button><button disabled={!current} onClick={() => run(() => exportMarkdown(noteDocument?.source ?? '', `${current?.title || 'JoplinU'}.md`))}>导出 Markdown ↗</button><button aria-label="打开设置" onClick={() => setModal({ kind: 'settings' })}>⚙</button></div></header>
+			<header className="library-topbar"><button className="mobile-list-back" aria-label="打开笔记列表" onClick={() => { if (!noteDocument?.isComposing) setMobileView('notes'); }}>←</button><button className="mobile-navigation" aria-label="打开笔记导航" onClick={() => setSidebar(true)}>☰</button><div className="breadcrumb">{current ? folderPath(vault, current.folderId).join(' / ') || t('未分类', 'Unfiled') : t('个人笔记库', 'My library')}</div><div className="top-actions"><div className="pane-toggles"><button aria-label="切换文件夹栏" title="显示 / 隐藏文件夹栏" aria-pressed={p.showSidebar} onClick={() => updatePreferences({ showSidebar: !p.showSidebar })}>☷</button><button aria-label="切换笔记列表" title="显示 / 隐藏笔记列表 · Ctrl/Cmd+Shift+L" aria-pressed={p.showNoteList} onClick={() => updatePreferences({ showNoteList: !p.showNoteList })}>☰</button></div><button onClick={() => requestImport('markdown')}>{t('导入', 'Import')}</button><button disabled={!current} onClick={() => run(() => exportMarkdown(noteDocument?.source ?? '', `${current?.title || 'JoplinU'}.md`))}>导出 Markdown ↗</button><button aria-label="打开设置" onClick={() => setModal({ kind: 'settings' })}>⚙</button></div></header>
 			<input ref={importInput} type="file" multiple accept=".md,.markdown,.txt,text/plain,text/markdown" aria-label="导入 Markdown" hidden onChange={event => importFiles([...event.target.files ?? []], 'markdown')} />
 			<input ref={folderInput} type="file" multiple {...{ webkitdirectory: '' }} aria-label="导入文件夹" hidden onChange={event => importFiles([...event.target.files ?? []], 'directory')} />
 			<input ref={otherInput} type="file" aria-label="导入资料文件" hidden onChange={event => importFiles([...event.target.files ?? []], pendingImport.current.kind)} />
 			<input ref={attachmentInput} type="file" multiple aria-label="导入附件" hidden onChange={event => addAttachments([...event.target.files ?? []])} />
-			{(error || controller.error) && <div role="alert" className="problem">{error || controller.error}<button onClick={() => run(() => exportData('backup'))}>导出当前备份</button>{error && <button onClick={() => setError('')}>关闭提示</button>}</div>}
-			{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')}>×</button></div>}{busy && <div role="status" className="notice">正在处理文件，请稍候…</div>}
+			{feedback}
 			{current && noteDocument ? <>
-				<div className="note-heading"><input aria-label="笔记标题" maxLength={500} value={current.title} readOnly={!!current.deletedAt} onChange={event => controller.updateNote(current.id, { title: event.target.value, updatedAt: Date.now() })} /><div className="note-actions">{current.deletedAt ? <button className="primary" onClick={() => { controller.updateNote(current.id, { deletedAt: null }); setTrash(false); setFolderId(current.folderId); }}>恢复笔记</button> : <><button onClick={() => attachmentInput.current?.click()}>附件</button><button onClick={() => setModal({ kind: 'link' })}>内链</button><button onClick={() => setModal({ kind: 'move' })}>移动</button><button onClick={() => setModal({ kind: 'metadata' })}>信息</button><button onClick={() => { setHistoryId(undefined); setModal({ kind: 'history' }); }}>历史</button>{p.toc && <button onClick={() => setModal({ kind: 'outline' })}>目录</button>}<button aria-label="将笔记移入回收站" onClick={() => { if (noteDocument.isComposing) return; controller.checkpoint(current.id, '移入回收站前'); controller.updateNote(current.id, { deletedAt: Date.now() }); setNotice('已移入回收站，可以恢复'); }}>⌫</button></>}</div></div>
+				<div className="note-heading"><input aria-label="笔记标题" maxLength={500} value={current.title} readOnly={!!current.deletedAt} onChange={event => controller.updateNote(current.id, { title: event.target.value, updatedAt: Date.now() })} /><div className="note-actions">{current.deletedAt ? <button className="primary" onClick={() => { controller.updateNote(current.id, { deletedAt: null }); setTrash(false); setFolderId(current.folderId); }}>恢复笔记</button> : <><button onClick={() => attachmentInput.current?.click()}>附件</button><button onClick={() => setModal({ kind: 'link' })}>内链</button><button onClick={() => setModal({ kind: 'move', ids: [current.id] })}>移动</button><button onClick={() => setModal({ kind: 'metadata' })}>信息</button><button onClick={() => { setHistoryId(undefined); setModal({ kind: 'history' }); }}>历史</button>{p.toc && <button onClick={() => setModal({ kind: 'outline' })}>目录</button>}<button aria-label="将笔记移入回收站" onClick={() => { trashNotes([current.id], true); }}>⌫</button></>}</div></div>
 				{current.deletedAt ? <section className="deleted-note"><h2>这篇笔记在回收站中</h2><p>正文、附件引用和历史仍然保留。恢复后可继续编辑。</p><pre>{noteDocument.source}</pre></section> : <div className="editor-with-outline"><Editor key={current.id} primary={noteDocument} preferences={p} assets={assets} onOpenNote={openNote} onOpenAttachment={id => setModal({ kind: 'attachment', id })} onRecovery={text => run(() => exportMarkdown(text, 'JoplinU-recovery.md'))} status={saveLabel} />{p.toc && headings.length > 0 && <nav className="document-outline" aria-label="标题目录"><span>目录</span>{headings.map((heading, i) => <button key={`${heading.offset}-${i}`} style={{ paddingLeft: Math.min(heading.depth, 4) * 8 }} onClick={() => window.dispatchEvent(new CustomEvent('joplinu-focus-source', { detail: heading.offset }))}>{heading.text || '无标题'}</button>)}</nav>}</div>}
 			</> : <section className="empty-library"><span className="brand-icon">U</span><h1>{t('给想法一个位置', 'A place for your ideas')}</h1><p>创建笔记，或从 Markdown 文件夹开始。</p><button className="primary" onClick={addNote}>{t('新建笔记', 'New note')}</button></section>}
 		</main>
 		{modal?.kind === 'settings' && <Settings controller={controller} onClose={close} onExport={exportData} onImport={requestImport} onManageAttachments={() => setModal({ kind: 'attachments' })} run={run} />}
-		{modal?.kind === 'folder' && <FolderDialog vault={vault} id={modal.id} defaultParent={folderId} onClose={close} onSave={next => { controller.change(next); close(); }} run={run} />}
-		{modal?.kind === 'move' && current && <Dialog title="移动笔记" onClose={close}><div className="choice-list"><button onClick={() => { controller.updateNote(current.id, { folderId: null }); setFolderId(null); close(); }}>未分类</button>{vault.folders.map(folder => <button key={folder.id} onClick={() => { controller.updateNote(current.id, { folderId: folder.id }); setFolderId(folder.id); close(); }}>{folderPath(vault, folder.id).join(' / ')}</button>)}</div></Dialog>}
+		{modal?.kind === 'folder' && <FolderDialog vault={vault} id={modal.id} defaultParent={folderId} onClose={close} onSave={next => { controller.change(next); if (folderId && !next.folders.some(folder => folder.id === folderId)) setFolderId(null); close(); }} run={run} />}
+		{modal?.kind === 'move' && <Dialog title={modal.ids.length > 1 ? `移动 ${modal.ids.length} 篇笔记` : '移动笔记'} onClose={close}><div className="choice-list">{[{ id: null, name: '未分类' }, ...vault.folders.map(folder => ({ id: folder.id, name: folderPath(vault, folder.id).join(' / ') }))].map(folder => <button key={folder.id ?? 'unfiled'} onClick={() => run(() => { controller.moveNotes(modal.ids, folder.id); setFolderId(folder.id); setChecked(new Set()); close(); })}>{folder.name}</button>)}</div></Dialog>}
+		{modal?.kind === 'note-menu' && menuNote && <Dialog title="笔记操作" onClose={close}><p>{menuNote.title || '无标题笔记'}</p><div className="choice-list"><button onClick={() => { close(); select(menuNote); }}>打开笔记</button>{!menuNote.deletedAt && <button onClick={() => run(() => { const copy = controller.duplicateNote(menuNote.id); setFolderId(copy.folderId); setQuery(''); setTag(undefined); select(copy); close(); setNotice('已创建独立副本，原笔记已保留'); })}>复制笔记</button>}<button onClick={() => setModal({ kind: 'move', ids: [menuNote.id] })}>移动笔记</button><button className={menuNote.deletedAt ? '' : 'danger'} onClick={() => { trashNotes([menuNote.id], !menuNote.deletedAt); close(); }}>{menuNote.deletedAt ? '恢复此笔记' : '移入回收站'}</button></div></Dialog>}
 		{modal?.kind === 'metadata' && current && <MetadataDialog note={current} vault={vault} onClose={close} onSave={fields => { controller.updateNote(current.id, fields); close(); }} />}
 		{modal?.kind === 'history' && current && <Dialog title="笔记历史" onClose={close} wide><div className="button-row"><button className="primary" onClick={() => controller.checkpoint(current.id)}>创建当前快照</button><span>{current.history.length} 个版本</span></div><div className="history-layout"><div className="choice-list">{current.history.map(entry => <button key={entry.id} className={historyId === entry.id ? 'selected' : ''} onClick={() => setHistoryId(entry.id)}>{formatDate(entry.createdAt, p)}<small>{entry.reason}</small></button>)}{!current.history.length && <p>尚无历史版本</p>}</div>{historyEntry ? <section><pre className="history-source">{historyEntry.source || '（空文档）'}</pre><button className="primary" onClick={() => run(() => { controller.restore(current.id, historyEntry.source); close(); setNotice('已恢复版本，恢复前的内容已另存快照'); })}>恢复此版本</button></section> : <p>选择一个版本查看原文。</p>}</div></Dialog>}
 		{modal?.kind === 'link' && <Dialog title="插入笔记内链" onClose={close}><div className="choice-list">{vault.notes.filter(note => !note.deletedAt).map(note => <button key={note.id} onClick={() => run(() => { insert(`[${escapeLabel(note.title)}](note:${note.id})`); close(); })}>{note.title}<small>{folderPath(vault, note.folderId).join(' / ')}</small></button>)}</div></Dialog>}

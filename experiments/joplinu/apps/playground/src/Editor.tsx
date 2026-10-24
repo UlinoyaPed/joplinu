@@ -36,11 +36,12 @@ function Peer({ connected, replica }: { connected: boolean; replica: NoteDocumen
 
 interface EditorProps { primary: NoteDocument; preferences: Preferences; assets: Map<string, { url: string; mime: string }>; onOpenNote(id: string): void; onOpenAttachment(id: string): void; onRecovery(source: string): void; status: string }
 export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachment, onRecovery, status }: EditorProps) {
-	const replica = useMemo(() => { const value = new NoteDocument(); value.applyRemote(Y.encodeStateAsUpdate(primary.doc)); return value; }, [primary]);
-	useEffect(() => () => replica.destroy(), [replica]);
+	const diagnostics = new URLSearchParams(window.location.search).has('diagnostics');
+	const [peer, setPeer] = useState(false);
+	const replica = useMemo(() => { if (!peer) return undefined; const value = new NoteDocument(); value.applyRemote(Y.encodeStateAsUpdate(primary.doc)); return value; }, [primary, peer]);
+	useEffect(() => () => replica?.destroy(), [replica]);
 	const source = useSource(primary);
 	const [mode, setMode] = useState<Mode>(preferences.defaultMode);
-	const [peer, setPeer] = useState(false);
 	const [connected, setConnected] = useState(true);
 	const [html, setHtml] = useState('');
 	const [ratio, setRatio] = useState(50);
@@ -65,7 +66,7 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 	}, []);
 
 	useEffect(() => {
-		if (!connected) return;
+		if (!connected || !replica) return;
 		const forward = (target: NoteDocument) => (update: Uint8Array, origin: unknown) => { if (origin !== 'remote') target.applyRemote(update); };
 		const toReplica = forward(replica);
 		const toPrimary = forward(primary);
@@ -150,7 +151,7 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 	};
 	const insertMath = () => { if (primary.isComposing) return; const selection = primary.restoreSelection(); setMathEdit({ from: Math.min(selection.anchor, selection.head), to: Math.max(selection.anchor, selection.head), value: 'x^2', display: false, baseline: primary.source }); };
 	return <div className="note-editor" style={{ '--editor-font-size': `${preferences.fontSize}px`, '--editor-line-height': preferences.lineHeight, '--editor-font': preferences.font === 'mono' ? "'SFMono-Regular', Consolas, monospace" : "system-ui, sans-serif" } as React.CSSProperties} onContextMenu={event => { if (mode === 'rich' && !primary.isComposing) { event.preventDefault(); setContext({ x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 280) }); } }}>
-			<div className="modebar"><div role="tablist" aria-label="编辑模式">{modes.map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => switchMode(item.id)}>{item.label}</button>)}</div><button className={peer ? 'experiment active' : 'experiment'} onClick={() => setPeer(value => !value)}>◫ 双实例实验</button></div>
+			<div className="modebar"><div role="tablist" aria-label="编辑模式">{modes.map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => switchMode(item.id)}>{item.label}</button>)}</div>{diagnostics && <button className={peer ? 'experiment active' : 'experiment'} onClick={() => setPeer(value => !value)}>◫ 双实例实验</button>}</div>
 			<div className="editor-toolbar"><span>{modes.find(item => item.id === mode)?.hint}</span><div><button aria-label="撤销" disabled={!primary.undo.undoStack.length} onClick={() => primary.undo.undo()}>↶</button><button aria-label="重做" disabled={!primary.undo.redoStack.length} onClick={() => primary.undo.redo()}>↷</button></div></div>
 			{mode === 'rich' && <div className="formatbar" aria-label="格式工具栏">{commands.map(([name, label]) => <button key={name} onMouseDown={event => event.preventDefault()} onClick={() => runRich(name)}>{label}</button>)}<button onMouseDown={event => event.preventDefault()} onClick={insertMath}>插入公式</button></div>}
 			{problem && <div role="alert" className="problem">{problem.message} {problem.draft && <button onClick={() => onRecovery(problem.draft)}>导出恢复草稿</button>}<button onClick={() => setProblem(undefined)}>关闭</button></div>}
@@ -176,7 +177,7 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 							if (target) { scrollLock.current = performance.now() + 120; sourceEditor.current?.scrollToSource(Number(target.dataset.source)); }
 						}}>{renderError || <div className="rendered-markdown" dangerouslySetInnerHTML={{ __html: html }} />}</div></>}
 				</div>
-				{peer && <div className="peer-panel"><div className="peer-controls"><button onClick={() => setConnected(value => !value)}>{connected ? '断开连接' : '重新连接并合并'}</button><span>{connected ? '本机模拟 · 已连接' : '离线编辑中'}</span></div><Peer connected={connected} replica={replica} /></div>}
+				{peer && replica && <div className="peer-panel"><div className="peer-controls"><button onClick={() => setConnected(value => !value)}>{connected ? '断开连接' : '重新连接并合并'}</button><span>{connected ? '本机模拟 · 已连接' : '离线编辑中'}</span></div><Peer connected={connected} replica={replica} /></div>}
 			</div>
 			<footer><span><i className="status-dot" />{status}</span><span>{source.length.toLocaleString()} 字符 <b>UTF-16</b> · Markdown</span></footer>
 			{context && <div role="menu" aria-label="编辑上下文菜单" className="editor-context-menu" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }}>{commands.slice(0, 10).map(([name, label]) => <button role="menuitem" key={name} onMouseDown={event => event.preventDefault()} onClick={() => { runRich(name); setContext(undefined); }}>{label}</button>)}</div>}

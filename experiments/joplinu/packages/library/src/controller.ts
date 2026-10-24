@@ -1,6 +1,6 @@
 import { NoteDocument, minimalEdit } from '../../document/src/index';
 import type { VaultStorage } from '../../database/src/index';
-import { createVault, decodeDocument, encodeDocument, fromBase64, sha256, newId, validateVault, type Vault, type Note } from './model';
+import { createVault, createNote, decodeDocument, encodeDocument, fromBase64, sha256, newId, validateVault, type Vault, type Note } from './model';
 
 export class LibraryController {
 	private listeners = new Set<() => void>();
@@ -61,6 +61,31 @@ export class LibraryController {
 	}
 	updateNote(id: string, fields: Partial<Omit<Note, 'id'>>) {
 		this.change({ ...this.vault, notes: this.vault.notes.map(note => note.id === id ? { ...note, ...fields } : note) });
+	}
+	duplicateNote(id: string): Note {
+		const original = this.vault.notes.find(note => note.id === id && !note.deletedAt);
+		if (!original) throw new Error('笔记不存在或已在回收站中');
+		const document = this.document(id);
+		if (document.isComposing) throw new Error('请先结束中文输入');
+		const copy = { ...createNote(`${original.title.slice(0, 493)}（副本）`, original.folderId, document.source), tags: [...original.tags], location: original.location ? { ...original.location } : null };
+		this.change({ ...this.vault, notes: [...this.vault.notes, copy] }); return copy;
+	}
+	moveNotes(ids: string[], folderId: string | null) {
+		const selected = this.requireNotes(ids);
+		if (folderId !== null && !this.vault.folders.some(folder => folder.id === folderId)) throw new Error('目标文件夹不存在');
+		this.change({ ...this.vault, notes: this.vault.notes.map(note => selected.has(note.id) ? { ...note, folderId } : note) });
+	}
+	trashNotes(ids: string[], deleted: boolean) {
+		const selected = this.requireNotes(ids); const now = Date.now();
+		this.change({ ...this.vault, notes: this.vault.notes.map(note => selected.has(note.id) && !!note.deletedAt !== deleted ? { ...note,
+			history: deleted ? this.addHistory(note, this.document(note.id).source, '移入回收站前') : note.history, deletedAt: deleted ? now : null } : note) });
+	}
+	private requireNotes(ids: string[]): Set<string> {
+		const selected = new Set(ids);
+		const present = new Set(this.vault.notes.map(note => note.id));
+		if (!selected.size || [...selected].some(id => !present.has(id))) throw new Error('请选择仍存在的笔记');
+		if ([...selected].some(id => this.documents.get(id)?.isComposing)) throw new Error('请先结束中文输入');
+		return selected;
 	}
 	private addHistory(note: Note, source: string, reason: string) {
 		const cutoff = Date.now() - this.vault.preferences.historyDays * 86400000;

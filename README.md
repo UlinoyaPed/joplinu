@@ -1,6 +1,6 @@
 # JoplinU
 
-跨平台、离线优先的 Markdown 笔记应用。已实现四模式编辑、多级文件夹、本地笔记库、设置、历史恢复和备份，并提供独立的 Electron RPM / Capacitor Android APK 构建工程。
+跨平台、离线优先的 Markdown 笔记应用。已实现类似原版的三栏布局、四模式编辑、多级文件夹、标签筛选、批量笔记操作、本地保存、设置、历史恢复和备份，并提供独立的 Electron RPM / Capacitor Android APK 构建工程。
 
 实际开发入口位于 [`experiments/joplinu`](experiments/joplinu)。仓库保留的旧 Joplin 代码仅供参考，不参与新应用构建。
 

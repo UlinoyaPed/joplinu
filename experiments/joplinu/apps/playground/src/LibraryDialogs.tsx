@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { descendants, folderPath, formatDate, moveFolder, newId, type Note, type Vault } from '../../../packages/library/src/model';
+import { descendants, dissolveFolder, folderPath, formatDate, moveFolder, newId, type Note, type Vault } from '../../../packages/library/src/model';
 import { Dialog } from './Dialog';
 
 export function FolderDialog({ vault, id, defaultParent, onClose, onSave, run }: { vault: Vault; id: string | undefined; defaultParent: string | null; onClose(): void; onSave(vault: Vault): void; run(action: () => void): void }) {
 	const existing = vault.folders.find(folder => folder.id === id);
 	const [name, setName] = useState(existing?.name ?? '');
+	const [removing, setRemoving] = useState(false);
+	const [confirmation, setConfirmation] = useState('');
 	const [parentId, setParentId] = useState<string | null>(existing ? existing.parentId : defaultParent);
 	const blocked = id ? descendants(vault, id) : new Set<string>();
 	const empty = existing && !vault.notes.some(note => note.folderId === id) && !vault.folders.some(folder => folder.parentId === id);
@@ -13,7 +15,7 @@ export function FolderDialog({ vault, id, defaultParent, onClose, onSave, run }:
 		if (vault.folders.some(folder => folder.id !== id && folder.parentId === parentId && folder.name === name.trim())) throw new Error('同级目录已经存在此名称');
 		if (existing) { const moved = moveFolder(vault, existing.id, parentId); onSave({ ...moved, folders: moved.folders.map(folder => folder.id === id ? { ...folder, name: name.trim() } : folder) }); }
 		else onSave({ ...vault, folders: [...vault.folders, { id: newId(), parentId, name: name.trim(), createdAt: Date.now() }] });
-	}); }}><label className="setting-field">文件夹名称<input required autoFocus maxLength={200} value={name} onChange={event => setName(event.target.value)} /></label><label className="setting-field">上级文件夹<select value={parentId ?? ''} onChange={event => setParentId(event.target.value || null)}><option value="">根目录</option>{vault.folders.filter(folder => !blocked.has(folder.id)).map(folder => <option key={folder.id} value={folder.id}>{folderPath(vault, folder.id).join(' / ')}</option>)}</select></label><div className="button-row"><button type="submit" className="primary">保存文件夹</button>{existing && <button type="button" className="danger" disabled={!empty} onClick={() => onSave({ ...vault, folders: vault.folders.filter(folder => folder.id !== id) })}>删除空文件夹</button>}</div>{existing && !empty && <p className="hint">先移动笔记与子文件夹后才能删除；回收站中的笔记也保留目录引用。</p>}</form></Dialog>;
+	}); }}><label className="setting-field">文件夹名称<input required autoFocus maxLength={200} value={name} onChange={event => setName(event.target.value)} /></label><label className="setting-field">上级文件夹<select value={parentId ?? ''} onChange={event => setParentId(event.target.value || null)}><option value="">根目录</option>{vault.folders.filter(folder => !blocked.has(folder.id)).map(folder => <option key={folder.id} value={folder.id}>{folderPath(vault, folder.id).join(' / ')}</option>)}</select></label><div className="button-row"><button type="submit" className="primary">保存文件夹</button>{existing && <button type="button" className="danger" onClick={() => setRemoving(true)}>{empty ? '删除空文件夹' : '移除文件夹'}</button>}</div>{existing && removing && <section className="folder-removal"><p>仅移除“{existing.name}”这一层。笔记（包括回收站笔记）和直接子文件夹将移至{existing.parentId ? '上级文件夹' : '根目录'}，正文、附件与历史会保留。此操作不会删除笔记。</p><label className="setting-field">输入文件夹名称确认<input value={confirmation} onChange={event => setConfirmation(event.target.value)} /></label><button type="button" className="danger" disabled={confirmation !== existing.name} onClick={() => run(() => onSave(dissolveFolder(vault, existing.id)))}>确认移除文件夹</button></section>}</form></Dialog>;
 }
 
 export function MetadataDialog({ note, vault, onClose, onSave }: { note: Note; vault: Vault; onClose(): void; onSave(fields: Partial<Note>): void }) {

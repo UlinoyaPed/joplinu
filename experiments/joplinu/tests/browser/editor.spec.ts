@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises';
 
 const fixture = '# 中文标题  \n\n原文 **粗体** 和 *斜体*。\n\n| a | b |\n|:---|---:|\n| 甲 | 乙 |\n\n$$\nx^2\n$$\n\n~~~ts\nconst x = 1;\n~~~\n\n![附件](attachment:abc)\n\n:::custom\n未知语法\n:::\n';
 
-async function load(page: Page, text = fixture) {
-	await page.goto('/');
+async function load(page: Page, text = fixture, url = '/') {
+	await page.goto(url);
 	await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles({ name: 'fixture.md', mimeType: 'text/markdown', buffer: Buffer.from(text) });
 	await expect(page.locator('footer')).toContainText(`${text.length} 字符`);
 }
@@ -122,7 +122,7 @@ test('an unsafe rich-to-Markdown conversion preserves the original and offers a 
 });
 
 test('two real editor instances merge disconnected edits and remote content reaches rich view', async ({ page }) => {
-	await load(page, '共同笔记');
+	await load(page, '共同笔记', '/?diagnostics');
 	await page.getByRole('tab', { name: '富文本', exact: true }).click();
 	await page.getByRole('button', { name: '双实例实验' }).click();
 	await page.getByRole('button', { name: '断开连接', exact: true }).click();

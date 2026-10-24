@@ -197,9 +197,9 @@ export async function makeAttachment(file: File, imageMaxWidth: number): Promise
 }
 
 const searchCache = new WeakMap<object, string>();
-export function searchableNotes(vault: Vault, query: string, folderId: string | null, trash: boolean) {
+export function searchableNotes(vault: Vault, query: string, folderId: string | null, trash: boolean, tag?: string) {
 	const words = query.trim().toLocaleLowerCase(vault.preferences.language).split(/\s+/).filter(Boolean);
-	return vault.notes.filter(note => !!note.deletedAt === trash && (!folderId || note.folderId === folderId)).filter(note => {
+	return vault.notes.filter(note => !!note.deletedAt === trash && (!folderId || note.folderId === folderId) && (tag === undefined || note.tags.includes(tag))).filter(note => {
 		if (!words.length) return true;
 		let text = searchCache.get(note);
 		if (text === undefined) { const document = decodeDocument(note.state); try { text = [note.title, ...note.tags, document.source].join('\n'); searchCache.set(note, text); } finally { document.destroy(); } }

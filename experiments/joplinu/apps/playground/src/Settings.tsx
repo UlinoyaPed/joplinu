@@ -58,6 +58,9 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 					<label className="setting-field">主题<select value={p.theme} onChange={event => update({ theme: event.target.value as Preferences['theme'] })}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
 					<label className="setting-field">笔记排序<select value={p.sort} onChange={event => update({ sort: event.target.value as Preferences['sort'] })}><option value="updated">最近修改优先</option><option value="title">按标题</option></select></label>
 					<label className="setting-field">文件夹排序<select value={p.folderSort} onChange={event => update({ folderSort: event.target.value as Preferences['folderSort'] })}><option value="name">按名称</option><option value="created">按创建时间</option></select></label>
+					<label className="setting-field">文件夹栏宽度 · {p.sidebarWidth}px<input type="range" min="180" max="340" value={p.sidebarWidth} onChange={event => update({ sidebarWidth: Number(event.target.value) })} /></label>
+					<label className="setting-field">笔记列表宽度 · {p.noteListWidth}px<input type="range" min="220" max="420" value={p.noteListWidth} onChange={event => update({ noteListWidth: Number(event.target.value) })} /></label>
+					<button onClick={() => update({ sidebarWidth: 230, noteListWidth: 280, showSidebar: true, showNoteList: true })}>恢复默认三栏布局</button><p className="hint">桌面可拖动分隔线调整宽度。手机通过返回按钮进入笔记列表，侧栏保留文件夹与标签。</p>
 				</>}
 				{section === 'sync' && <>
 					<div className="status-card"><strong>本地存储 · {controller.storage.kind}</strong><p>{controller.status === 'saved' ? '当前修改已保存到本机' : controller.status === 'error' ? '本地保存失败，请导出备份' : '正在保存本地修改'}</p><p>云端：未连接，没有上传任何笔记。</p></div>

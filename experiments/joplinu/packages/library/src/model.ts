@@ -8,11 +8,13 @@ export interface Preferences {
 	sort: 'updated' | 'title'; folderSort: 'name' | 'created'; fontSize: number; lineHeight: number;
 	font: 'mono' | 'sans'; spellcheck: boolean; defaultMode: Mode; math: boolean; diagrams: boolean;
 	highlight: boolean; toc: boolean; media: boolean; history: boolean; historyDays: number; imageMaxWidth: number;
+	sidebarWidth: number; noteListWidth: number; showSidebar: boolean; showNoteList: boolean;
 }
 export const defaultPreferences: Preferences = {
 	language: 'zh-CN', dateFormat: 'locale', theme: 'system', sort: 'updated', folderSort: 'name', fontSize: 15,
 	lineHeight: 1.9, font: 'mono', spellcheck: false, defaultMode: 'live', math: true, diagrams: true,
 	highlight: true, toc: true, media: true, history: true, historyDays: 90, imageMaxWidth: 1600,
+	sidebarWidth: 230, noteListWidth: 280, showSidebar: true, showNoteList: true,
 };
 export interface Folder { id: string; parentId: string | null; name: string; createdAt: number }
 export interface HistoryEntry { id: string; source: string; createdAt: number; reason: string }
@@ -70,6 +72,13 @@ export function folderPath(vault: Vault, id: string | null): string[] {
 	}
 	return result;
 }
+/** Remove only the container. Keep notes (including trash), children and their identities. */
+export function dissolveFolder(vault: Vault, id: string): Vault {
+	const target = vault.folders.find(folder => folder.id === id);
+	if (!target) throw new Error('文件夹不存在');
+	return { ...vault, folders: vault.folders.filter(folder => folder.id !== id).map(folder => folder.parentId === id ? { ...folder, parentId: target.parentId } : folder),
+		notes: vault.notes.map(note => note.folderId === id ? { ...note, folderId: target.parentId } : note) };
+}
 export function formatDate(value: number, preferences: Preferences) {
 	return preferences.dateFormat === 'iso' ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : new Date(value).toLocaleString(preferences.language);
 }
@@ -94,9 +103,16 @@ export function validatePreferences(value: unknown): Preferences {
 		fontSize: number(p.fontSize, 12, 32), lineHeight: number(p.lineHeight, 1.2, 3), font: enumeration(p.font, ['mono', 'sans']),
 		defaultMode: enumeration(p.defaultMode, ['live', 'rich', 'source', 'split']), historyDays: number(p.historyDays, 1, 3650), imageMaxWidth: number(p.imageMaxWidth, 0, 8192),
 		spellcheck: false, math: false, diagrams: false, highlight: false, toc: false, media: false, history: false,
+		sidebarWidth: p.sidebarWidth === undefined ? defaultPreferences.sidebarWidth : number(p.sidebarWidth, 180, 340),
+		noteListWidth: p.noteListWidth === undefined ? defaultPreferences.noteListWidth : number(p.noteListWidth, 220, 420),
+		showSidebar: true, showNoteList: true,
 	};
 	for (const key of ['spellcheck', 'math', 'diagrams', 'highlight', 'toc', 'media', 'history'] as const) {
 		if (typeof p[key] !== 'boolean') throw new Error('无效的开关设置'); result[key] = p[key];
+	}
+	for (const key of ['showSidebar', 'showNoteList'] as const) {
+		if (p[key] !== undefined && typeof p[key] !== 'boolean') throw new Error('无效的布局设置');
+		result[key] = p[key] === undefined ? defaultPreferences[key] : p[key] as boolean;
 	}
 	return result;
 }
