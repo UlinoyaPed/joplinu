@@ -24,12 +24,16 @@
 		"test:desktop": "node scripts/desktop-smoke.mjs",
 		"prebuild": "node scripts/notices.mjs",
 		"desktop:package": "npm run build && electron-builder --config electron-builder.config.cjs --linux rpm --x64 --publish never",
-		"android:test": "cd apps/android/native && ./gradlew :app:connectedDebugAndroidTest --no-daemon"
+		"android:test": "cd apps/android/native && ./gradlew :app:connectedDebugAndroidTest --no-daemon",
+		"storage:setup": "node --use-env-proxy scripts/fetch-seaweed.mjs",
+		"test:storage:s3": "vitest run --config vitest.storage.config.ts tests/integration/s3.test.ts",
+		"test:storage:oss": "vitest run --config vitest.storage.config.ts tests/integration/oss.test.ts"
 	},
 	"engines": {
 		"node": ">=22.19"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1156.0",
 		"@capacitor/core": "8.5.3",
 		"@capacitor/filesystem": "8.1.5",
 		"@capacitor/share": "8.0.3",
@@ -41,6 +45,7 @@
 		"@codemirror/view": "^6.38.0",
 		"@lezer/highlight": "^1.2.0",
 		"@lezer/markdown": "^1.4.0",
+		"ali-oss": "^6.23.0",
 		"diff": "^8.0.4",
 		"dompurify": "^3.4.17",
 		"fflate": "^0.8.3",
@@ -77,6 +82,7 @@
 	"devDependencies": {
 		"@capacitor/cli": "^8.5.3",
 		"@playwright/test": "^1.55.0",
+		"@types/ali-oss": "^6.23.4",
 		"@types/katex": "^0.16.7",
 		"@types/mdast": "^4.0.4",
 		"@types/node": "^24.0.0",

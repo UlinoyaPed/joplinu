@@ -1,6 +1,6 @@
 # RPM / APK 构建与签名
 
-构建入口是 `.github/workflows/joplinu-build.yml`，调用独立检查 workflow 后并行构建 Electron Linux x64 RPM 和 Capacitor Android APK。它不依赖旧 Joplin 构建工程。当前打包的是本地笔记库开发版，包含多级目录、SQLite 保存、历史与备份。云同步和同步 E2EE 尚未接入，安装包不代表这些能力已完成。
+构建入口是 `.github/workflows/joplinu-build.yml`，完成独立检查 workflow 与真实 S3 服务兼容测试后并行构建 Electron Linux x64 RPM 和 Capacitor Android APK。它不依赖旧 Joplin 构建工程。当前打包的是本地笔记库开发版，包含多级目录、SQLite 保存、历史与备份。云同步和同步 E2EE 尚未接入，安装包不代表这些能力已完成。
 
 ## 自动构建
 

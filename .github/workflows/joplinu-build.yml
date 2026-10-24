@@ -25,8 +25,25 @@ jobs:
   checks:
     uses: ./.github/workflows/joplinu-editor-poc.yml
 
+  storage:
+    name: Real S3 compatibility
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: experiments/joplinu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: experiments/joplinu/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run storage:setup
+      - run: npm run test:storage:s3
+
   rpm:
-    needs: checks
+    needs: [checks, storage]
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -76,7 +93,7 @@ jobs:
           path: experiments/joplinu/test-results/
 
   apk:
-    needs: checks
+    needs: [checks, storage]
     runs-on: ubuntu-24.04
     defaults:
       run:

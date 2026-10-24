@@ -6,7 +6,7 @@
 
 目标仓库 `UlinoyaPed/joplinu` 默认分支 `dev`，起点 `585ec251b056eb0665f6a2e0eee4e012b32e2f6e`（Doc: Auto-update documentation）。远端检查时只有 `dev` 分支。本地浅克隆初始工作区干净。它已经包含完整 Joplin 工程：根 Yarn 4.16 workspace，Electron 桌面、React Native 移动端、CodeMirror / ProseMirror 编辑器、SQLite、本地模型、同步和加密实现，并非空的新工程。没有发现 AGENTS.md；读取并遵循根 CLAUDE.md 中适用的工程约定。
 
-保留原有应用、许可证、资源与数据路径。后续按用户明确要求移除了旧 Joplin 机器人、构建 workflow 和开发说明，根 README / AGENTS 改为 JoplinU 入口。新工程暂置于 `experiments/joplinu/`，以独立 npm workspace、锁文件和严格 tsconfig 验证新架构，避免触发旧工程全部原生依赖安装。它不属于旧根 workspace，不导入任何 `@joplin/*` 模块。根 TypeScript 排除该目录，新工程自行检查。原型成功后可以在单独 PR 中提升为正式 apps/packages 工程；现在不迁移旧项目，也不改旧数据库。
+保留原有应用、许可证、资源与数据路径。后续按用户明确要求移除了旧 Joplin 机器人、构建 workflow 和开发说明，根 README / AGENTS 改为 JoplinU 入口。新工程暂置于 `experiments/joplinu/`，以独立 npm workspace、锁文件和严格 tsconfig 验证新架构，避免触发旧工程全部原生依赖安装。它不属于旧根 workspace，不导入任何 `@joplin/*` 模块。根 TypeScript 排除该目录，新工程自行检查。原型成功后可以在独立提交中提升为正式 apps/packages 工程；现在不迁移旧项目，也不改旧数据库。
 
 参考并读取了原有 `packages/editor/CodeMirror/extensions/rendering/`、`ProseMirror/schema.ts` 附近的模块结构、`ProseMirror/utils/UndoStackSynchronizer.ts`、`packages/lib/Synchronizer.ts`、`readme/dev/spec/{sync,sync_scroll}.md`、`readme/dev/spec/e2ee/native_encryption.md`。采用其分层、选区避让和源码位置映射经验，没有复制实现或同步协议。根 LICENSE 默认 AGPL-3.0-or-later 继续适用；未复用 Joplin 商标图标。
 
@@ -28,7 +28,7 @@ flowchart TD
   Storage --> S3[独立 S3 Provider]
 ```
 
-当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。新增 packages/library、database、core 和独立 backup crypto；同步和云存储 Provider 仍是后续设计边界。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
+当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。新增 packages/library、database、core 和独立 backup crypto；另有独立 storage 接口与 OSS / S3 Node 适配器，详见 [storage.md](storage.md)；尚未接入笔记同步。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
 
 业务核心不能依赖 Electron、Capacitor、DOM、SDK 或应用全局状态。编辑器可以依赖 DOM，Markdown 解析与 HTML 字符串生成不依赖浏览器。云 SDK 只能位于各自 Provider。跨进程调用使用逐项校验的白名单 IPC，禁止通用执行 / 任意文件路径代理。
 
@@ -82,13 +82,13 @@ Shiki 使用 JavaScript regex engine 和按需语言 / 主题，避免为 WASM �
 
 Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，限定 joplinu 协议的资源根目录并拒绝外部导航、新窗口与权限请求。Capacitor 共享 React 与文档核心，Kotlin 负责 SQLite；附件导出使用应用 cache 和受限 FileProvider。未来 Android WorkManager 只传输已加密且持久化的字节，合并需要前台文档引擎，不假设后台 JS 活跃。后台下载成功不等于已经合并。
 
-## ADR-006：OSS / S3 统一语义（阶段 3，未实现）
+## ADR-006：OSS / S3 统一语义（阶段 3，独立适配器已实现）
 
 Provider 必须有 put/get/list/head/delete；list 传递不透明游标并实际走完分页。NotFound、Authentication、Permission、Timeout、Network、Integrity、Unsupported 和 Cancelled 分别建模，只有明确可重试的临时失败按退避及抖动重试，取消与总时限可控，错误日志去除凭据和签名 URL。head 不存在返回 null，其他失败抛结构化错误。put 默认不是 CAS：上层只生成不可变随机对象 key，重试复用已持久化的相同密文。可选能力显式声明 conditionalPut、versioning，不参与正确性的最低假设。
 
 OSS 使用官方 ali-oss 或经验证 API，endpoint/bucket/prefix/STS 单独处理；S3 使用 AWS SDK v3、自定义 endpoint/region/path-style/SigV4/会话 token。二者不是同一个 Provider。设置界面记录类型、endpoint、region、bucket、prefix、临时凭据、path-style 和安全 TLS 选项，凭据只传给平台安全存储。连接测试在随机隔离前缀测试 put/head/list/get/delete，显示每项权限结果并清理自己创建的对象，不删除用户已有对象。禁止生产默认关闭证书验证。
 
-真实 OSS 与 MinIO 是第一批集成门槛。R2 / AWS / Ceph / Wasabi 必须逐端点记录分页、可见性、原子上传、超时和校验结果；不能用 mocks 或品牌兼容宣称代替实测。当前未配置任何此类凭据、未执行云端写入。
+已实现统一接口、官方 OSS V4 与 S3 SigV4 适配器、分页 / 重试 / 诊断。实际 S3 服务使用 SeaweedFS 4.49，验证了权限、响应丢失、分页及持久化等九项；MinIO 官方分发当前不可访问，替代选择及哈希见 storage.md。真实 OSS、MinIO、R2 / AWS / Ceph / Wasabi 必须逐端点记录行为，不能用本地 OSS 协议 fixture 或厂商品牌声明代替实测。当前没有真实 OSS 凭据，未执行个人云端读写。设置 UI、平台密钥保管和 Android 请求桥仍待实现。独立传输验证不启动完整同步，不绕过 ADR-003 门槛。
 
 ## ADR-007：不可变日志与 E2EE（阶段 4，未实现）
 

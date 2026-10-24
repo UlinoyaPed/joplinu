@@ -82,3 +82,16 @@ Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中
 新增目录导出回归：同标题、相同短 ID 前缀的两篇笔记不能覆盖同一个 Markdown 文件。导出路径改用完整 ID，并限制名称 UTF-8 字节长度、处理 Windows 保留名称；完整备份清单始终保留原始标题。
 
 导入现在以严格 UTF-8 解码，保留 BOM / CRLF，错误编码明确拒绝而不是替换成乱码；新增回归通过。表格结构命令保留列对齐属性，修改行列后重新映射 GFM 表头与对齐，周围代码围栏保持原文。窄桌面 / 平板使用抽屉导航以保留编辑宽度。最终本地完整检查：54 核心、7 包装边界、Chromium 156 开发与生产各 23 项通过。
+
+## 独立对象存储增量（2026-10-24）
+
+此前的本地笔记库提交 `5099ede` 已在 GitHub Actions run `39757791079` 完整通过：54 核心、7 Node 包装、Chromium 开发 / 生产各 23、RPM 实际启动 / SQLite 恢复、APK assemble / lint / 签名自测及 Android 35 模拟器应用 instrumentation 1 / 1。真机中文输入仍未验证。
+
+新增厂商无关存储接口、AWS SDK v3 S3 Provider、官方 ali-oss OSS V4 Provider、有限重试 / 超时 / 取消 / 命名空间限制 / 安全错误与随机连接诊断。详细测试配置见 [storage.md](storage.md)。这些是独立 Node 主机适配器，不会上传应用笔记，尚未接入同步或 Android WebView。
+
+- 核心 Vitest 63 / 63，包括 7 项存储策略和 2 项官方 OSS SDK 本地 HTTP 协议适配测试。后者不等于真实 OSS 验收。
+- SeaweedFS 4.49 真实 S3 服务 9 / 9，包含 SigV4 / 权限、分页、中文和二进制 key、动态密钥刷新、上传已完成但响应丢失、超时 / 503、清理与真实服务重启。服务二进制来自官方 release 并验证发布资产 SHA-256。
+- 实际实验发现 AWS SDK 将无 expiration 的动态身份永久缓存，更新源后仍使用错误密钥并被真实服务拒绝；使用 SDK 公共 forceRefresh 入口在每次请求前刷新后，该回归通过。
+- TypeScript 与现有生产构建、7 项 Node 包装、浏览器开发 / 生产各 23 项继续验证。CI 新增 Real S3 compatibility job，原生构建以本提交远端运行结果为准。
+
+本环境没有 OSS 测试凭据，真实 OSS 测试入口保留显式配置要求，未执行或宣称通过。MinIO 官方分发不可用，改用真实 SeaweedFS；其他 S3 厂商、TLS 线上兼容矩阵、安全凭据保管、应用设置接入和完整同步仍未验收。

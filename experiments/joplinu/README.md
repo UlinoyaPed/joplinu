@@ -25,6 +25,7 @@ npm run build:apk
 
 模块：`packages/document` 为权威 Y.Text，`editor` 为 CodeMirror / ProseMirror 适配，`markdown` 为安全渲染与位置映射，`library` 为目录 / 历史 / 备份控制器，`database` 为持久化端口，`crypto` 为独立备份加密，`platform` 为文件导出。业务逻辑不依赖旧 Joplin 服务。
 
+- [独立 OSS / S3 适配器与真实 API 验证](docs/storage.md)
 - [本地笔记库的实际功能与限制](docs/local-library.md)
 - [RPM / APK 构建和签名 Secrets](docs/builds.md)
 - [架构设计与依赖边界](docs/architecture.md)

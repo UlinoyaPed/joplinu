@@ -12,6 +12,7 @@ npm run dev
 
 - [架构设计](experiments/joplinu/docs/architecture.md)
 - [RPM、APK 与 GitHub Secrets 签名配置](experiments/joplinu/docs/builds.md)
+- [OSS / S3 传输接口和真实服务测试](experiments/joplinu/docs/storage.md)
 - [测试和当前限制](experiments/joplinu/docs/validation.md)
 - [本地笔记库与功能范围](experiments/joplinu/docs/local-library.md)
 - [分阶段实施](experiments/joplinu/docs/implementation-plan.md)
