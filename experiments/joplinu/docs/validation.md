@@ -131,3 +131,7 @@ CI [40821146974](https://github.com/UlinoyaPed/joplinu/actions/runs/40821146974)
 CI [40823386377](https://github.com/UlinoyaPed/joplinu/actions/runs/40823386377) 的现有检查、真实 S3、RPM、Windows NSIS 和 APK 全部通过。Windows 运行了打包程序的真实隔离 / SQLite 重启与损坏资料保护流程；Android 增加的临时目标桥接也通过，真实 OSS 和物理设备仍未验收。
 
 离线加密入队 / WorkManager 批次，本地严格构建和现有核心 / 打包 / 开发及生产浏览器检查通过；同一真实 SQLite / S3 场景增加离线入队，之后继续验证并发纯删除恢复、快照、重启和迁移。Android 继续复用同一原生场景，后台阶段使用原生传输状态轮询而不靠后台 JS：实际 WorkManager 上传后，SQLite 队列仍应保留，再重建 Activity 检查密钥锁定。该新增原生阶段以新提交 CI 为准，尚未宣称通过。
+
+CI [40825283924](https://github.com/UlinoyaPed/joplinu/actions/runs/40825283924) 全部通过，包含 Windows / RPM / APK 和实际 WorkManager 场景：Activity 停止后从原生状态轮询传输完成，确认 SQLite 队列没有被后台删除，再验证 Activity 重建后的密钥锁定。没有把后台传输称为文档已经合并，也没有声称验证了所有厂商的进程终止和节电行为。
+
+主密钥轮换继续复用同一真实 SQLite / SeaweedFS 场景，验证完整历史重加密、快照引用重写、旧密钥拒绝新密文、新设备恢复新库，以及旧设备离线编辑迁入后与新库编辑汇合。实际运行通过；Electron 双客户端还实际通过设置更换主密钥 / 新恢复码、另一旧设备迁入和修改保留。本地现有完整检查通过，新增代码的原生打包最终以新提交 CI 为准。

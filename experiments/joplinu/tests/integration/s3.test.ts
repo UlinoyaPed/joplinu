@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { LibraryController } from '../../packages/library/src/controller';
 import { SyncEngine, recoveryCode } from '../../packages/sync/src/engine';
 import { createNote } from '../../packages/library/src/model';
+import { unlockSyncKey, decryptSyncObject } from '../../packages/crypto/src/sync';
 import type { StoredVault, JournalWrite, VaultStorage } from '../../packages/database/src/index';
 
 describe('real SeaweedFS S3 API with AWS SDK v3', () => {
@@ -155,6 +156,17 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 			const copied = await reopened.engine.migrate(storage, target); let count = 0;
 			for await (const object of listAll(storage, `vaults/${reopened.controller.syncState!.manifest.vault}/`)) { expect(await target.getObject(object.key)).toEqual(await storage.getObject(object.key)); count++; }
 			expect(copied).toBe(count); expect(await target.getObject('outside-vault-preserved.bin')).toEqual(protectedBytes);
+			const oldManifest = structuredClone(reopened.controller.syncState!.manifest); const oldKey = await unlockSyncKey(oldManifest, password);
+			const nextPassword = 'new-key-password-' + crypto.randomUUID(); await reopened.engine.changeKey(storage, nextPassword);
+			const newManifest = reopened.controller.syncState!.manifest; expect(newManifest.vault).not.toBe(oldManifest.vault); expect(await storage.headObject(keyPath)).not.toBeNull();
+			const rekeyedPath = queued.replace(`vaults/${oldManifest.vault}/`, `vaults/${newManifest.vault}/`); const newCipher = await storage.getObject(rekeyedPath);
+			expect(newCipher).not.toEqual(original); await expect(decryptSyncObject(oldKey, rekeyedPath, newCipher)).rejects.toThrow(/认证/);
+			const newDevice = await device('new-key-device'); newDevice.controller.change({ ...newDevice.controller.vault, notes: [], folders: [] });
+			await newDevice.engine.join(storage, recoveryCode(newManifest), nextPassword); await newDevice.engine.sync(storage); expect(newDevice.controller.document(noteId).source).toBe(merged + '恢复队列');
+			const owned = newDevice.controller.document(noteId); owned.edit([{ from: owned.source.length, to: owned.source.length, insert: '新密钥编辑' }]); await newDevice.engine.sync(storage);
+			const offline = b.controller.document(noteId); offline.edit([{ from: 0, to: 0, insert: '旧设备离线编辑' }]);
+			await b.engine.joinChangedKey(storage, recoveryCode(newManifest), nextPassword); await newDevice.engine.sync(storage);
+			expect(b.controller.document(noteId).source).toContain('旧设备离线编辑'); expect(b.controller.document(noteId).source).toContain('新密钥编辑'); expect(newDevice.controller.document(noteId).source).toBe(b.controller.document(noteId).source);
 		} finally { for (const device of devices) { device.controller.dispose(); device.database.close(); } await rm(directory, { recursive: true, force: true }); }
 	}, 90000);
 });

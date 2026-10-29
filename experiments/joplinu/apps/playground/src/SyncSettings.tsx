@@ -13,6 +13,7 @@ export function SyncSettings({ controller }: { controller: LibraryController }) 
 	const engine = syncSession(controller); useSyncExternalStore(engine.subscribe, engine.getSnapshot);
 	const [mode, setMode] = useState<'create' | 'join'>('create'); const [code, setCode] = useState('');
 	const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+	const [keyAction, setKeyAction] = useState<'rotate' | 'join'>('rotate');
 	const state = controller.syncState;
 	const run = async (action: () => Promise<void>, success = '') => {
 		setError(''); setMessage('');
@@ -38,8 +39,18 @@ export function SyncSettings({ controller }: { controller: LibraryController }) 
 			{!engine.unlocked ? <form onSubmit={event => { event.preventDefault(); void run(async () => { await engine.unlock(password); setPassword(''); await engine.sync(await configuredProvider()); }, '已解锁，本轮同步完成。'); }}><label className="setting-field">解锁同步密码<input required type="password" value={password} disabled={engine.busy} onChange={event => setPassword(event.target.value)} autoComplete="current-password" /></label><button className="primary" disabled={engine.busy}>解锁并同步</button></form> : <div className="button-row"><button className="primary" disabled={engine.busy} onClick={() => void run(async () => engine.sync(await configuredProvider()), '本轮同步完成。')}>{engine.busy ? '正在同步…' : '立即同步'}</button><button disabled={engine.busy} onClick={() => void run(async () => engine.sync(await configuredProvider(), true), '远端对象认证、摘要和历史完整性检查通过。')}>检查远端完整性</button><button disabled={engine.busy} onClick={() => void run(async () => engine.snapshot(await configuredProvider()), '加密恢复快照已创建，原始更新历史继续保留。')}>创建恢复快照</button><button disabled={engine.busy} onClick={() => engine.lock()}>锁定同步密钥</button></div>}
 			<label className="setting-toggle"><span>自动同步<small>前台解锁后每分钟同步；Android 系统任务只传输已加密队列。关闭可暂停两者。</small></span><input type="checkbox" checked={state.autoSync} disabled={engine.busy} onChange={event => void run(() => controller.saveSyncState({ ...controller.syncState!, autoSync: event.target.checked }))} /></label>
 			<p className="hint">待上传加密对象：{state.outbox.length} · {engine.unlocked ? '密钥已解锁' : '密钥已锁定'}<br />{state.lastSync ? `上次同步完成：${formatDate(state.lastSync, controller.vault.preferences)}` : '尚未完成首次同步'}</p>
+			{engine.unlocked && <details><summary>主密钥与其他设备</summary><p className="hint">更换主密钥会重加密完整历史，生成新的恢复码。旧仓库保留，旧密钥仍可读取旧历史；新库及后续编辑使用新密钥。请先完成其他设备同步并保存独立备份。其他设备使用“加入新密钥库”迁移其离线编辑和历史。</p><form onSubmit={event => { event.preventDefault(); void run(async () => {
+				if (keyAction === 'rotate') { if (password !== confirm) throw new Error('两次输入的密码不一致'); await engine.changeKey(await configuredProvider(), password); }
+				else await engine.joinChangedKey(await configuredProvider(), code.trim(), password);
+			}, '已切换到新密钥库并完成同步，请保存上方的新恢复码。旧仓库保持原样。'); }}>
+				<label className="setting-field">密钥操作<select value={keyAction} disabled={engine.busy} onChange={event => setKeyAction(event.target.value as 'rotate' | 'join')}><option value="rotate">更换主密钥并创建新恢复码</option><option value="join">加入另一设备创建的新密钥库</option></select></label>
+				{keyAction === 'join' && <label className="setting-field">新恢复码<input required value={code} disabled={engine.busy} onChange={event => setCode(event.target.value)} autoComplete="off" /></label>}
+				<label className="setting-field">新同步密码<input required minLength={12} maxLength={1024} type="password" value={password} disabled={engine.busy} onChange={event => setPassword(event.target.value)} autoComplete={keyAction === 'rotate' ? 'new-password' : 'current-password'} /></label>
+				{keyAction === 'rotate' && <label className="setting-field">确认新密码<input required type="password" value={confirm} disabled={engine.busy} onChange={event => setConfirm(event.target.value)} autoComplete="new-password" /></label>}
+				<button disabled={engine.busy} type="submit">{keyAction === 'rotate' ? '重加密并更换主密钥' : '保留本机编辑并加入新密钥库'}</button>
+			</form></details>}
 		</>}
 		{engine.progress && <p role="status">{engine.progress}</p>}{(error || engine.error) && <p role="alert">{error || engine.error}</p>}{message && <p role="status">{message}</p>}{controller.syncRecoveryNote && <p role="status">{controller.syncRecoveryNote}</p>}
-		<p className="hint">恢复快照可加快新设备初始化，全部云端更新继续保留。锁定只移除会话密钥，已加密队列仍可后台传输；关闭自动同步可暂停上传。云端仍可删除或回滚数据，请定期保留独立加密备份。主密钥轮换尚未提供。</p>
+		<p className="hint">恢复快照可加快新设备初始化，全部云端更新继续保留。锁定只移除会话密钥，已加密队列仍可后台传输；关闭自动同步可暂停上传。云端仍可删除或回滚数据，请定期保留独立加密备份。</p>
 	</section>;
 }

@@ -6,6 +6,7 @@ import type { ObjectStorageProvider } from '../../storage/src/index';
 import { manifestPath, rootPath, MissingSyncDependencies, type SyncUpdate, type QueuedObject } from './replica';
 import { decodeUpdate, writeSnapshot, readSnapshot } from './snapshot';
 import { migrateRepository } from './migrate';
+import { rekeyRepository } from './rekey';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -194,6 +195,37 @@ export class SyncEngine {
 			const count = await migrateRepository(source, target, this.key, this.controller.syncState!, objects => { this.progress = `已复制并验证 ${objects} 个加密对象`; this.emit(); });
 			await afterVerified?.(); this.status = 'ready'; return count;
 		});
+	}
+	async changeKey(provider: ObjectStorageProvider, password: string) {
+		return this.exclusive(async () => { const next = await createSyncKey(password); await this.adoptKey(provider, next.manifest, next.key); });
+	}
+	async joinChangedKey(provider: ObjectStorageProvider, code: string, password: string) {
+		return this.exclusive(async () => {
+			if (!new RegExp(`^${uuid}\\.${uuid}$`).test(code)) throw new Error('请完整填写新同步库恢复码');
+			const [vault, keyId] = code.split('.') as [string, string]; const bytes = await provider.getObject(`vaults/${vault}/keys/${keyId}.json`);
+			if (bytes.length > 4096) throw new Error('新密钥文件过大');
+			const manifest = validateManifest(JSON.parse(decoder.decode(bytes)));
+			if (manifest.vault !== vault || manifest.key !== keyId) throw new Error('新恢复码与密钥不符');
+			await this.adoptKey(provider, manifest, await unlockSyncKey(manifest, password));
+		});
+	}
+	private async adoptKey(provider: ObjectStorageProvider, manifest: SyncKeyManifest, nextKey: CryptoKey) {
+		if (!this.key || !this.controller.syncState) throw new Error('请先解锁当前同步库，保留离线编辑和历史');
+		if (manifest.vault === this.controller.syncState.manifest.vault) throw new Error('当前已连接到此同步库');
+		this.status = 'syncing'; this.emit();
+		await this.controller.requireDurable(); await this.ensureManifest(provider);
+		await this.download(provider, false); await this.upload(provider); await this.prepare(provider);
+		const previous = this.controller.syncState!;
+		const copied = await rekeyRepository(provider, this.key, nextKey, previous, manifest, count => { this.progress = `已使用新密钥验证 ${count} 个历史对象`; this.emit(); });
+		const known: Record<string, string> = Object.create(null);
+		for (const path of Object.keys(previous.known)) { const entry = copied.get(path); if (!entry) throw new Error('已确认历史未完整重加密，未切换'); known[entry.path] = entry.hash; }
+		// After a lost local commit acknowledgement, either identity remains
+		// recoverable on disk. The in-memory key must always match its manifest.
+		this.key = nextKey;
+		await this.controller.saveSyncState({ ...this.controller.syncState!, manifest, device: crypto.randomUUID(), known, outbox: [], lastSync: null });
+		await this.download(provider, false); await this.prepare(provider);
+		await this.controller.saveSyncState({ ...this.controller.syncState!, lastSync: Date.now() });
+		this.status = 'synced';
 	}
 }
 
