@@ -84,3 +84,9 @@ npm run test:storage:oss
 Electron safeStorage 加密凭据文件，拒绝 basic_text。系统密钥环不可用时仅允许会话使用，不降级为明文落盘。清除配置不删除远端数据。Node SDK 与其 urllib 代理适配一起构建为主进程模块，不进入 WebView。
 
 已实际执行 Electron 界面 → 隔离 IPC → 原生 SDK → SeaweedFS 真实 S3 的连接流程，验证上传 / 读取 / 列举 / head / 删除、诊断清理、字段清空、状态与笔记库无凭据，以及重启后会话生命周期。尚无真实 OSS 凭据，不宣称 OSS 云端验收。此处连接诊断不上传笔记，增量同步与 E2EE 正在后续接入。
+
+## Android 原生云配置
+
+Android 使用独立 Capacitor 插件和 `HttpURLConnection` 执行前台对象请求，S3 使用 AWS SigV4，OSS 使用 OSS V4；二者共享对象接口与错误分类，不依赖 WebView CORS。凭据经过 AndroidKeyStore 不可导出 AES-GCM 密钥加密后写入 AtomicFile；JS 只能读取公开配置和操作结果。生产版本只接受 HTTPS，正常校验证书；调试版本仅为模拟器/本机环回开放 HTTP，以便 CI 使用真实的临时 S3 服务。插件提供标准读写、分页、校验、超时和有限重试。
+
+CI 增加一个原生连接场景：在模拟器通过原生桥接访问真实 SeaweedFS S3，检查读写/列举/删除、二进制内容、磁盘凭据加密和重新加载。该自动化验证与真实 OSS 服务、Android 真机输入法验收分别记录。此步骤仍然只建立云传输和安全凭据保管，不代表已实现笔记同步或 E2EE。

@@ -142,7 +142,17 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Test actual Android WebView and SQLite recovery
+      - name: Prepare real S3 service for Android
+        run: |
+          npm run storage:setup
+          node scripts/android-cloud-fixture.mjs > "$RUNNER_TEMP/joplinu-android-cloud.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/joplinu-android-cloud.pid"
+          for attempt in $(seq 1 90); do
+            if curl --silent --fail http://127.0.0.1:10081/ready > /dev/null 2>&1; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Test actual Android WebView, SQLite and cloud transport
         env:
           JOPLINU_VERSION_CODE: ${{ github.run_number }}
         uses: reactivecircus/android-emulator-runner@v2
@@ -153,6 +163,14 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -memory 2048
           script: npm --prefix experiments/joplinu run android:test
+      - name: Stop temporary S3 service
+        if: always()
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFile, access } from 'node:fs/promises';
+          const path = process.env.RUNNER_TEMP + '/joplinu-android-cloud.pid';
+          try { await access(path); const pid = Number(await readFile(path, 'utf8')); if (Number.isSafeInteger(pid) && pid > 1) process.kill(pid, 'SIGTERM'); } catch {}
+          JS
       - uses: actions/upload-artifact@v4
         with:
           name: joplinu-android-apk
@@ -162,4 +180,6 @@ jobs:
         if: failure()
         with:
           name: joplinu-android-lint
-          path: experiments/joplinu/apps/android/native/app/build/reports/
+          path: |
+            experiments/joplinu/apps/android/native/app/build/reports/
+            ${{ runner.temp }}/joplinu-android-cloud.log
