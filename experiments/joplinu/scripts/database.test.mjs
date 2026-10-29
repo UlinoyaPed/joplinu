@@ -14,7 +14,7 @@ test('SQLite persists acknowledged data across reopen and rejects stale writers'
 	try {
 		const path = join(directory, 'test.sqlite');
 		let database = new VaultDatabase(path);
-		assert.deepEqual({ ...database.read() }, { revision: 0, payload: null });
+		assert.deepEqual({ revision: database.read().revision, payload: database.read().payload }, { revision: 0, payload: null });
 		assert.equal(database.write({ expectedRevision: 0, payload: payload('中文 📝') }).revision, 1);
 		database.close(); database = new VaultDatabase(path);
 		assert.equal(database.read().payload, payload('中文 📝'));
