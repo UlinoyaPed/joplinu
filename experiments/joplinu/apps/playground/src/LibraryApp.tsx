@@ -12,6 +12,8 @@ import { NoteList } from './NoteList';
 import { PaneResizer } from './PaneResizer';
 import { Settings, type ExportKind, type ImportKind } from './Settings';
 import type { RootContent } from 'mdast';
+import { syncSession } from '../../../packages/sync/src/engine';
+import { configuredProvider } from './SyncSettings';
 
 type Modal = { kind: 'settings' | 'attachments' | 'link' | 'metadata' | 'history' | 'empty-trash' | 'outline' | 'tags' } | { kind: 'folder'; id?: string } | { kind: 'attachment'; id: string } | { kind: 'move'; ids: string[] } | { kind: 'note-menu'; id: string };
 const words = (node: RootContent): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => words(child as RootContent)).join('') : '';
@@ -19,6 +21,12 @@ const escapeLabel = (text: string) => text.replace(/[\\[\]]/g, '\\$&').replace(/
 
 export function LibraryApp({ controller }: { controller: LibraryController }) {
 	useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+	const sync = syncSession(controller); useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+	useEffect(() => {
+		const tick = () => { if (!sync.unlocked || sync.busy || !controller.syncState?.autoSync || document.visibilityState !== 'visible' || !navigator.onLine) return; void configuredProvider().then(provider => sync.sync(provider)).catch(() => {}); };
+		const timer = setInterval(tick, 60000); window.addEventListener('online', tick);
+		return () => { clearInterval(timer); window.removeEventListener('online', tick); };
+	}, [controller, sync]);
 	const vault = controller.vault;
 	const p = vault.preferences;
 	const t = (zh: string, en: string) => p.language === 'en-US' ? en : zh;
@@ -221,7 +229,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 			<FolderTree vault={vault} selected={trash ? null : folderId} onSelect={activateFolder} onManage={id => setModal({ kind: 'folder', id })} onDrop={drop} />
 			<button className={`all-notes ${trash ? 'selected' : ''}`} onClick={() => activateFolder(null, true)}>{t('回收站', 'Trash')}<small>{vault.notes.filter(note => note.deletedAt).length}</small></button>
 			<div className="nav-heading"><span>{t('标签', 'Tags')}</span><button aria-label="管理标签" onClick={() => setModal({ kind: 'tags' })}>⋯</button></div><nav className="tag-list" aria-label="笔记标签">{tags.length ? tags.map(([name, count]) => <button key={name} className={tag === name ? 'selected' : ''} aria-pressed={tag === name} onClick={() => activateTag(name)}><span># {name}</span><small>{count}</small></button>) : <p className="sidebar-hint">在笔记“信息”中添加标签</p>}</nav></div>
-			<div className="library-storage"><span className="status-dot" />{controller.storage.kind} · {t('本地笔记库', 'Local library')}<small>{t('云同步未连接', 'Cloud not connected')}</small></div>
+			<div className="library-storage"><span className="status-dot" />{controller.storage.kind} · {t('本地笔记库', 'Local library')}<small>{sync.busy ? t('正在同步', 'Synchronizing') : sync.status === 'error' ? t('同步失败，请查看设置', 'Sync failed; see settings') : controller.syncState ? sync.unlocked ? t('加密同步已解锁', 'Encrypted sync unlocked') : t('加密同步已锁定', 'Encrypted sync locked') : t('云同步未连接', 'Cloud not connected')}</small></div>
 		</aside>
 		<PaneResizer label="调整文件夹栏宽度" property="--sidebar-width" value={p.sidebarWidth} min={180} max={340} initial={230} onChange={sidebarWidth => updatePreferences({ sidebarWidth })} />
 		<NoteList feedback={feedback} onReturn={() => { if (!noteDocument?.isComposing) setMobileView('editor'); }} notes={notes} selectedId={selectedId} title={listTitle} preferences={p} query={query} searchRef={searchInput} onQuery={setQuery} checked={checked} onChecked={setChecked} onSelect={select} onCreate={addNote} onCreateTodo={() => newEntry('todo')} onToggleTodo={note => run(() => controller.toggleTodo(note.id))} onMenu={note => setModal({ kind: 'note-menu', id: note.id })} onNavigation={() => setSidebar(true)} onMove={ids => setModal({ kind: 'move', ids })} onTrash={trashNotes} trash={trash} onEmptyTrash={() => { setPermanentConfirmation(''); setModal({ kind: 'empty-trash' }); }} onSort={sort => updatePreferences({ sort })} />

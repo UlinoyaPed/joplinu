@@ -75,6 +75,7 @@ export class CloudHost {
 			if (method !== 'request') throw new HostError('unsupported');
 			const request = input as CloudRequest;
 			if (!request || typeof request.key !== 'string' || (request.cursor !== undefined && (typeof request.cursor !== 'string' || request.cursor.length > 10000))) throw new HostError('invalid-request');
+			if (request.expectedConfig && Object.entries(this.active.profile.config).some(([field, value]) => (request.expectedConfig as unknown as Record<string, unknown>)[field] !== value)) throw new HostError('conflict');
 			const provider = this.active.provider; let value: unknown = null;
 			switch (request.operation) {
 			case 'put': {

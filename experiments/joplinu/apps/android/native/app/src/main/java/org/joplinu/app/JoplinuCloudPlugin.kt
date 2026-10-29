@@ -112,7 +112,7 @@ internal class AndroidCloudHost(context: Context) {
                 "info" -> info()
                 "configure" -> { if (input.opt("persist") !is Boolean) throw CloudFailure("invalid-config"); val next = profile(input); if (input.getBoolean("persist")) { if (!secure()) throw CloudFailure("secure-storage-unavailable"); encrypt(next) }; active = next; error = null; info() }
                 "clear" -> { file.delete(); active = null; error = null; info() }
-                "request" -> { val value = active ?: throw CloudFailure("not-configured"); CloudObjectClient(value.config, value.credentials).perform(input) }
+                "request" -> { val value = active ?: throw CloudFailure("not-configured"); if (input.has("expectedConfig")) { val expected = input.optJSONObject("expectedConfig") ?: throw CloudFailure("invalid-request"); for (field in value.config.keys()) if (value.config.get(field) != expected.opt(field)) throw CloudFailure("conflict") }; CloudObjectClient(value.config, value.credentials).perform(input) }
                 "probe" -> { val value = active ?: throw CloudFailure("not-configured"); probe(CloudObjectClient(value.config, value.credentials)) }
                 else -> throw CloudFailure("unsupported")
             }

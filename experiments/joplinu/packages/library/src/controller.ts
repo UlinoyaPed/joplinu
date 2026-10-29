@@ -2,6 +2,8 @@ import * as Y from 'yjs';
 import { NoteDocument, minimalEdit } from '../../document/src/index';
 import type { VaultStorage, JournalWrite } from '../../database/src/index';
 import { createVault, createNote, decodeDocument, encodeDocument, fromBase64, toBase64, sha256, newId, validateVault, type Vault, type Note } from './model';
+import { LibraryReplica, validateSyncState, type SyncState, type SyncUpdate } from '../../sync/src/replica';
+import type { SyncKeyManifest } from '../../crypto/src/sync';
 
 export class LibraryController {
 	private listeners = new Set<() => void>();
@@ -17,6 +19,9 @@ export class LibraryController {
 	private version = 0;
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private waiters: (() => void)[] = [];
+	private replica: LibraryReplica | undefined;
+	private applyingRemote = false;
+	syncState: SyncState | undefined;
 	status: 'loading' | 'pending' | 'saving' | 'saved' | 'error' = 'loading';
 	error = '';
 	vault!: Vault;
@@ -31,7 +36,9 @@ export class LibraryController {
 			if (stored.payload === null && Object.values(stored.noteUpdates ?? {}).some(updates => updates.length)) {
 				throw new Error('本地 Yjs 日志缺少资料库索引；已停止加载');
 			}
-			this.vault = stored.payload === null ? createVault(initial) : validateVault(JSON.parse(stored.payload));
+			const parsed = stored.payload === null ? undefined : JSON.parse(stored.payload) as Record<string, unknown>;
+			this.vault = parsed === undefined ? createVault(initial) : validateVault(parsed);
+			if (parsed?.sync !== undefined) { this.syncState = validateSyncState(parsed.sync); this.replica = new LibraryReplica(this.syncState.meta); }
 			// The v2 index stores metadata only. Every document is reconstructed
 			// from its ordered Yjs journal before rendering or allowing writes.
 			if (stored.payload !== null) for (const note of this.vault.notes) {
@@ -62,6 +69,7 @@ export class LibraryController {
 		const document = decodeDocument(note.state);
 		this.documents.set(id, document);
 		document.onChange(() => {
+			if (this.applyingRemote) return;
 			const current = this.vault.notes.find(item => item.id === id);
 			if (!current) return;
 			let history = current.history;
@@ -74,6 +82,7 @@ export class LibraryController {
 		return document;
 	}
 	change(vault: Vault) {
+		if (this.replica && !this.applyingRemote) this.replica.update(this.vault, vault);
 		this.vault = vault;
 		this.generation++;
 		if (this.status !== 'error') this.status = 'pending';
@@ -184,7 +193,7 @@ export class LibraryController {
 				// No CRDT payload is duplicated in the metadata snapshot. New notes,
 				// restored notes and incremental edits enter the same SQLite/IDB
 				// transaction as folder, history, settings and attachment changes.
-				const payload = JSON.stringify({ ...snapshot, notes: snapshot.notes.map(note => ({ ...note, state: '' })) });
+				const payload = JSON.stringify({ ...snapshot, notes: snapshot.notes.map(note => ({ ...note, state: '' })), ...(this.syncState ? { sync: { ...this.syncState, meta: this.replica!.encode() } } : {}) });
 				this.status = 'saving'; this.emit();
 				const revision = await this.storage.write(this.revision, payload, journal);
 				this.revision = revision;
@@ -208,5 +217,48 @@ export class LibraryController {
 		this.change({ ...this.vault, logs: [{ at: Date.now(), level, message }, ...this.vault.logs].slice(0, 200) });
 	}
 	get hasUnsavedChanges() { return this.generation !== this.savedGeneration; }
-	dispose() { clearTimeout(this.timer); for (const document of this.documents.values()) document.destroy(); this.documents.clear(); this.listeners.clear(); }
+	/** Creates a new metadata replica; joining merges rather than discarding this device's notes. */
+	async enableSync(manifest: SyncKeyManifest) {
+		if (this.syncState) throw new Error('当前资料库已连接同步库，请先锁定或使用现有同步库');
+		await this.flush(); if (this.status === 'error' || this.hasUnsavedChanges) throw new Error(this.error || '请先保存本地资料');
+		this.replica = new LibraryReplica(); this.replica.update(undefined, this.vault);
+		this.syncState = { version: 1, manifest, device: newId(), meta: this.replica.encode(), vectors: {}, hashes: {}, outbox: [], known: {}, lastSync: null, autoSync: true };
+		this.change(this.vault); await this.requireDurable();
+	}
+	async requireDurable() { await this.flush(); if (this.status === 'error' || this.hasUnsavedChanges) throw new Error(this.error || '本地保存尚未完成，暂停云操作'); }
+	/** The caller persists ciphertext and its vectors before any upload. */
+	async saveSyncState(state: SyncState) { this.syncState = state; this.change(this.vault); await this.requireDurable(); }
+	syncCapture() {
+		if (!this.syncState || !this.replica) throw new Error('请先创建或加入加密同步库');
+		return { meta: this.replica.encode(), notes: this.vault.notes.map(note => ({ id: note.id, state: note.state })) };
+	}
+	async applySyncUpdates(updates: SyncUpdate[], known: Record<string, string>) {
+		if (!this.syncState || !this.replica) throw new Error('同步库未连接');
+		if ([...this.documents.values()].some(document => document.isComposing)) throw new Error('请先结束输入法组合输入，再应用远端更新');
+		const generation = this.generation;
+		const candidate = new LibraryReplica(this.replica.encode());
+		const bodies = new Map<string, NoteDocument>();
+		try {
+			for (const note of this.vault.notes) bodies.set(note.id, decodeDocument(note.state));
+			for (const update of updates) {
+				if (update.target === 'meta') candidate.apply(update.update);
+				else { const id = update.target.slice(5); let body = bodies.get(id); if (!body) bodies.set(id, body = new NoteDocument()); body.applyRemote(fromBase64(update.update)); }
+			}
+			if (candidate.doc.store.pendingStructs || candidate.doc.store.pendingDs || [...bodies.values()].some(body => body.doc.store.pendingStructs || body.doc.store.pendingDs)) throw new Error('远端更新依赖尚未到齐，请稍后重试；已保留本地数据');
+			const states = new Map([...bodies].map(([id, document]) => [id, encodeDocument(document)]));
+			const vault = candidate.project(this.vault, states);
+			for (const attachment of vault.attachments) if (!this.vault.attachments.some(old => old.id === attachment.id && old.data === attachment.data && old.sha256 === attachment.sha256) && await sha256(fromBase64(attachment.data)) !== attachment.sha256) throw new Error('远端附件校验失败，已停止合并');
+			if (generation !== this.generation || [...this.documents.values()].some(document => document.isComposing)) throw new Error('本地正在编辑，请稍后重试同步；修改均已保留');
+			this.applyingRemote = true;
+			try {
+				for (const note of vault.notes) this.documents.get(note.id)?.applyRemote(fromBase64(note.state));
+				for (const [id, document] of this.documents) if (!vault.notes.some(note => note.id === id)) { document.destroy(); this.documents.delete(id); }
+				this.replica.destroy(); this.replica = candidate;
+				this.syncState = { ...this.syncState, meta: candidate.encode(), known: { ...this.syncState.known, ...known } };
+				this.change(vault);
+			} finally { this.applyingRemote = false; }
+			await this.requireDurable();
+		} finally { if (candidate !== this.replica) candidate.destroy(); for (const body of bodies.values()) body.destroy(); }
+	}
+	dispose() { clearTimeout(this.timer); for (const document of this.documents.values()) document.destroy(); this.documents.clear(); this.replica?.destroy(); this.listeners.clear(); }
 }

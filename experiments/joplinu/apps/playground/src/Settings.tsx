@@ -4,6 +4,7 @@ import { formatDate, validatePreferences, type Preferences } from '../../../pack
 import { checkVault } from '../../../packages/library/src/transfer';
 import { Dialog } from './Dialog';
 import { CloudSettings } from './CloudSettings';
+import { SyncSettings } from './SyncSettings';
 
 const sections = [
 	['general', '☷', '常规', 'General', '语言与日期格式设置'],
@@ -64,10 +65,10 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 					<button onClick={() => update({ sidebarWidth: 230, noteListWidth: 280, showSidebar: true, showNoteList: true })}>恢复默认三栏布局</button><p className="hint">桌面可拖动分隔线调整宽度。手机通过返回按钮进入笔记列表，侧栏保留文件夹与标签。</p>
 				</>}
 				{section === 'sync' && <>
-					<div className="status-card"><strong>本地存储 · {controller.storage.kind}</strong><p>{controller.status === 'saved' ? '当前修改已保存到本机' : controller.status === 'error' ? '本地保存失败，请导出备份' : '正在保存本地修改'}</p><p>笔记同步尚未启用，云存储连接状态见下方。</p></div>
+					<div className="status-card"><strong>本地存储 · {controller.storage.kind}</strong><p>{controller.status === 'saved' ? '当前修改已保存到本机' : controller.status === 'error' ? '本地保存失败，请导出备份' : '正在保存本地修改'}</p></div>
+					<SyncSettings controller={controller} />
 					<CloudSettings onLog={(message, failed) => controller.log(message, failed ? 'error' : 'info')} />
-					<p>笔记增量同步、同步密钥轮换与代理接入尚未启用。当前连接测试只传输随机诊断数据。</p>
-					<p>现在可以使用密码加密的完整备份传输笔记，恢复时会保留本机已有资料。</p><button className="primary" onClick={() => setSection('transfer')}>打开加密备份与恢复</button>
+					<button onClick={() => setSection('transfer')}>打开独立加密备份与恢复</button>
 				</>}
 				{section === 'editor' && <>
 					<label className="setting-field">默认编辑模式<select value={p.defaultMode} onChange={event => update({ defaultMode: event.target.value as Preferences['defaultMode'] })}><option value="live">实时预览</option><option value="rich">富文本</option><option value="source">源码</option><option value="split">双列</option></select></label><p className="hint">在下次打开笔记时应用。</p>

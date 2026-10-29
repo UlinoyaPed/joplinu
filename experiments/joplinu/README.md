@@ -12,7 +12,7 @@ npm run dev
 
 桌面与 Android 通过受限原生接口使用 SQLite，浏览器预览使用 IndexedDB。只有数据库确认提交后才显示“已保存到本地”。读取损坏资料不会重置为空库；保存失败保留内存内容并提供导出。多窗口争写时拒绝过期版本，要求备份后重新打开，尚未实现窗口间自动协同。
 
-云同步尚未启用；加密备份不等于同步 E2EE。当前是开发版本，请保留独立备份。完整同步必须等待文档模型与真机输入验收通过。
+原生客户端在设置 → 同步中配置 OSS / S3，再创建加密同步库或使用恢复码加入。同步使用独立的 Yjs 增量日志、持久密文队列和客户端认证加密；支持前台手动 / 定时同步。当前仍是开发版本，请保留独立备份；真实 OSS、真机输入与后台任务不能由 S3 或模拟器测试代替。参见[同步协议与限制](docs/sync-protocol.md)。
 
 ```sh
 npm run check
@@ -23,7 +23,7 @@ npm run build:rpm
 npm run build:apk
 ```
 
-模块：`packages/document` 为权威 Y.Text，`editor` 为 CodeMirror / ProseMirror 适配，`markdown` 为安全渲染与位置映射，`library` 为目录 / 历史 / 备份控制器，`database` 为持久化端口，`crypto` 为独立备份加密，`platform` 为文件导出。业务逻辑不依赖旧 Joplin 服务。
+模块：`packages/document` 为权威 Y.Text，`editor` 为 CodeMirror / ProseMirror 适配，`markdown` 为安全渲染与位置映射，`library` 为目录 / 历史 / 备份控制器，`database` 为持久化端口，`crypto` 提供独立备份和同步加密，`sync` 为与厂商无关的同步引擎，`platform` / `platform-host` 提供文件及原生云接口。业务逻辑不依赖旧 Joplin 服务。
 
 - [独立 OSS / S3 适配器与真实 API 验证](docs/storage.md)
 - [本地笔记库的实际功能与限制](docs/local-library.md)

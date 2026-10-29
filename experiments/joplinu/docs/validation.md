@@ -111,3 +111,11 @@ Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中
 本地严格编译、已有核心与打包检查、开发 / production 浏览器流程通过；界面核对实际操作了待办新建 / 置顶、标题焦点、标签重名合并 / 删除并确认正文未变。Electron 使用真实 SQLite 验证重启和损坏资料保护。新增源码命令检查在用户提出减少测试前完成；不以数量作为完成标准。
 
 本次基于远端 `d8c4e48` 的 v2 日志实现继续开发，保留其 14 次存储提交；修复可选 IPC 字段的严格类型问题、既有测试适配类型，以及 SQLite 返回 Uint8Array 时错误的 base64 编码，并让桌面索引 / 日志在同一读事务中读取。没有通过放宽断言绕过重开问题。v2 的数据与升级边界见 [yjs-journal.md](yjs-journal.md)；Android / RPM 最终结果以此提交 CI 为准，真机 IME 与完整同步仍未验收。
+
+## 原生云传输与前台加密增量同步（2026-10-29）
+
+桌面和 Android 安全云配置以独立提交接入。CI [40819394261](https://github.com/UlinoyaPed/joplinu/actions/runs/40819394261) 的编辑器检查、真实 S3、RPM 和 APK 全部通过；Android 模拟器实际经 Capacitor 插件、AndroidKeyStore 与原生 SigV4 请求访问真实临时 SeaweedFS 服务，包含凭据加密和重新解锁。代理依赖的已披露高危问题通过移除不必要的 PAC/FTP 依赖修复，`npm audit --audit-level=low` 为零漏洞。
+
+新增前台同步引擎后，本地 `npm run check` 的严格构建、既有核心 / 打包 / 开发和生产浏览器检查通过。真实 S3 套件通过；只增加一个覆盖实际 SQLite、离线相近位置编辑、元数据字段合并、持久密文队列、丢失上传确认后重启、新设备恢复、错误密码、密文篡改和对象删除的关键场景。
+
+另实际启动两个独立 Electron 配置目录，经应用设置创建同步库、复制恢复码并加入，在另一客户端打开保留数学 / 任务 Markdown 的笔记，完成再次同步和密钥锁定。没有将 SDK Mock 或浏览器内存 Provider 作为云接入证明。当前前台同步提交的 Android 集成构建仍需 CI 单独确认；真实 OSS、物理 Android IME、后台任务、密钥轮换和大容量资料库仍未验收。
