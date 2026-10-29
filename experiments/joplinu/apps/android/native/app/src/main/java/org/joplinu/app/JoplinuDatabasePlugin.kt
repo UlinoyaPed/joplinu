@@ -23,7 +23,8 @@ class JoplinuDatabasePlugin : Plugin() {
                 db.execSQL("CREATE TABLE vault (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL)")
                 db.execSQL("INSERT INTO vault VALUES (1,0)")
                 db.execSQL("CREATE TABLE chunks (ordinal INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
-                db.execSQL("CREATE TABLE note_updates (note_id TEXT NOT NULL, revision INTEGER NOT NULL, data BLOB NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(note_id,revision))")
+                db.execSQL("CREATE TABLE note_updates (note_id TEXT NOT NULL, revision INTEGER NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(note_id,revision))")
+                db.execSQL("CREATE TABLE note_update_chunks (note_id TEXT NOT NULL, revision INTEGER NOT NULL, ordinal INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(note_id,revision,ordinal))")
             }
             override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) { throw IllegalStateException("Unsupported database migration") }
         }.also { it.setWriteAheadLoggingEnabled(true) }
@@ -45,16 +46,26 @@ class JoplinuDatabasePlugin : Plugin() {
                 db.rawQuery("SELECT revision FROM vault WHERE id=1", null).use { cursor -> check(cursor.moveToFirst()); revision = cursor.getLong(0) }
                 // Keep individual rows below Android's CursorWindow limit, including CJK text.
                 db.rawQuery("SELECT payload FROM chunks ORDER BY ordinal", null).use { cursor -> while (cursor.moveToNext()) payload.append(cursor.getString(0)) }
-	            db.rawQuery("SELECT note_id, data, checksum FROM note_updates ORDER BY note_id,revision", null).use { cursor ->
-	                while (cursor.moveToNext()) {
-	                    val id = cursor.getString(0)
-	                    val data = cursor.getBlob(1)
-	                    check(digest(data) == cursor.getString(2)) { "Yjs journal checksum mismatch" }
-	                    val list = journals.optJSONArray(id) ?: JSONArray().also { journals.put(id, it) }
-	                    list.put(Base64.encodeToString(data, Base64.NO_WRAP))
-	                }
-	            }
-	                db.setTransactionSuccessful()
+	            db.rawQuery("SELECT note_id, revision, checksum FROM note_updates ORDER BY note_id,revision", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getString(0)
+                        val updateRevision = cursor.getLong(1)
+                        val expected = cursor.getString(2)
+                        val output = java.io.ByteArrayOutputStream()
+                        db.rawQuery("SELECT data FROM note_update_chunks WHERE note_id=? AND revision=? ORDER BY ordinal", arrayOf(id, updateRevision.toString())).use { chunks ->
+                            while (chunks.moveToNext()) {
+                                val bytes = chunks.getBlob(0)
+                                require(output.size() + bytes.size <= 8 * 1024 * 1024) { "Yjs journal too large" }
+                                output.write(bytes)
+                            }
+                        }
+                        val data = output.toByteArray()
+                        check(data.isNotEmpty() && digest(data) == expected) { "Yjs journal checksum mismatch" }
+                        val list = journals.optJSONArray(id) ?: JSONArray().also { journals.put(id, it) }
+                        list.put(Base64.encodeToString(data, Base64.NO_WRAP))
+                    }
+                }
+                db.setTransactionSuccessful()
             } finally { db.endTransaction() }
             call.resolve(JSObject().put("revision", revision).put("payload", if (revision == 0L) JSONObject.NULL else payload.toString()).put("noteUpdates", journals))
         } catch (_: Exception) { call.reject("无法读取本地 SQLite；原数据未重置") }
@@ -117,19 +128,37 @@ class JoplinuDatabasePlugin : Plugin() {
                         offset = end
                     }
                 }
+                val removeChunks = db.compileStatement("DELETE FROM note_update_chunks WHERE note_id=?")
+                removeChunks.use { statement ->
+                    for (id in dropIds) { statement.clearBindings(); statement.bindString(1, id); statement.executeUpdateDelete() }
+                }
                 val delete = db.compileStatement("DELETE FROM note_updates WHERE note_id=?")
                 delete.use { statement ->
                     for (id in dropIds) { statement.clearBindings(); statement.bindString(1, id); statement.executeUpdateDelete() }
                 }
-                val insertUpdate = db.compileStatement("INSERT INTO note_updates (note_id,revision,data,checksum) VALUES (?,?,?,?)")
-                insertUpdate.use { statement ->
-                    for ((id, data, hash) in updateValues) {
-                        statement.clearBindings()
-                        statement.bindString(1, id)
-                        statement.bindLong(2, revision + 1)
-                        statement.bindBlob(3, data)
-                        statement.bindString(4, hash)
-                        statement.executeInsert()
+                val insertUpdate = db.compileStatement("INSERT INTO note_updates (note_id,revision,checksum) VALUES (?,?,?)")
+                val insertChunk = db.compileStatement("INSERT INTO note_update_chunks (note_id,revision,ordinal,data) VALUES (?,?,?,?)")
+                insertUpdate.use { header ->
+                    insertChunk.use { chunk ->
+                        for ((id, data, hash) in updateValues) {
+                            header.clearBindings()
+                            header.bindString(1, id)
+                            header.bindLong(2, revision + 1)
+                            header.bindString(3, hash)
+                            header.executeInsert()
+                            var offset = 0
+                            var ordinal = 0L
+                            while (offset < data.size) {
+                                val next = minOf(offset + 64 * 1024, data.size)
+                                chunk.clearBindings()
+                                chunk.bindString(1, id)
+                                chunk.bindLong(2, revision + 1)
+                                chunk.bindLong(3, ordinal++)
+                                chunk.bindBlob(4, data.copyOfRange(offset, next))
+                                chunk.executeInsert()
+                                offset = next
+                            }
+                        }
                     }
                 }
                 db.setTransactionSuccessful()
