@@ -33,6 +33,12 @@ class NativeCloudTest {
         }
         throw AssertionError("Native cloud operation timed out")
     }
+    private fun awaitTrue(scenario: ActivityScenario<MainActivity>, script: String) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90)
+        while (System.nanoTime() < deadline) { if (evaluate(scenario, script) == "true") return; Thread.sleep(100) }
+        val state = evaluate(scenario, "JSON.stringify({error:document.querySelector('[role=alert]')?.textContent,status:document.querySelector('footer')?.textContent})")
+        throw AssertionError("Native sync UI timed out: $state")
+    }
     @Test fun nativeKeystoreAndSigV4RoundTrip() {
         val connection = URL("http://10.0.2.2:10081/config").openConnection() as HttpURLConnection
         connection.connectTimeout = 10000; connection.readTimeout = 10000
@@ -57,6 +63,25 @@ class NativeCloudTest {
                 val encrypted = java.io.File(context.filesDir, "cloud-settings-v1.enc").readBytes(); assertFalse(encrypted.toString(Charsets.UTF_8).contains(secret))
                 val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }; assertNull(store.getKey("joplinu.cloud.credentials.v1", null).encoded)
                 val reopened = AndroidCloudHost(context.applicationContext).invoke("info", JSONObject()); assertTrue("Keystore restore failed", reopened.getJSONObject("value").getBoolean("configured"))
+                // Extend this same native scenario through the real React UI,
+                // Web Crypto, SQLite outbox and native transport. No mocked sync.
+                awaitTrue(scenario, "Boolean(document.querySelector('footer')?.textContent.includes('已保存到本地'))")
+                evaluate(scenario, "document.querySelector('button[aria-label=\"打开设置\"]').click(); true")
+                awaitTrue(scenario, "Boolean(document.querySelector('.settings-nav'))")
+                evaluate(scenario, "[...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('同步')).click(); true")
+                awaitTrue(scenario, "Boolean(document.querySelector('.sync-settings form'))")
+                val password = JSONObject.quote("native-sync-" + java.util.UUID.randomUUID())
+                evaluate(scenario, "document.querySelectorAll('.sync-settings input[type=password]').forEach(input=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,$password);input.dispatchEvent(new Event('input',{bubbles:true}));}); true")
+                evaluate(scenario, "document.querySelector('.sync-settings form button').click(); true")
+                awaitTrue(scenario, "Boolean(document.querySelector('.sync-settings')?.textContent.includes('同步库已连接，本轮同步完成'))")
+                val remote = call(scenario, "request", JSONObject().put("operation", "list").put("key", "vaults/")).getJSONObject("value").getJSONArray("objects")
+                assertTrue("No encrypted update uploaded", (0 until remote.length()).any { remote.getJSONObject(it).getString("key").contains("/updates/") })
+                scenario.recreate()
+                awaitTrue(scenario, "Boolean(document.querySelector('footer')?.textContent.includes('已保存到本地'))")
+                evaluate(scenario, "document.querySelector('button[aria-label=\"打开设置\"]').click(); true")
+                awaitTrue(scenario, "Boolean(document.querySelector('.settings-nav'))")
+                evaluate(scenario, "[...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('同步')).click(); true")
+                awaitTrue(scenario, "Boolean(document.querySelector('.sync-settings')?.textContent.includes('解锁同步密码'))")
             } finally { call(scenario, "clear") }
         }
     }

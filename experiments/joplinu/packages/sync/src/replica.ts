@@ -23,10 +23,10 @@ export function validateSyncState(value: unknown): SyncState {
 	const vectors: Record<string, string> = Object.create(null); const known: Record<string, string> = Object.create(null); const hashes: Record<string, string> = Object.create(null);
 	for (const [target, value] of Object.entries(s.vectors)) { if (!isSyncTarget(target) || typeof value !== 'string' || value.length > 2 * 1024 * 1024) throw new Error('同步向量损坏'); Y.decodeStateVector(fromBase64(value)); vectors[target] = value; }
 	for (const [target, hash] of Object.entries(s.hashes)) { if (!isSyncTarget(target) || typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) throw new Error('同步摘要损坏'); hashes[target] = hash; }
-	const validPath = (path: string) => typeof path === 'string' && path.startsWith(`vaults/${manifest.vault}/updates/`) && /^vaults\/[a-z0-9-]+\/updates\/[a-zA-Z0-9-]+\/[a-z0-9-]+\.bin$/.test(path);
+	const validPath = (path: string, snapshots = false) => typeof path === 'string' && path.startsWith(`vaults/${manifest.vault}/`) && (/^vaults\/[a-z0-9-]+\/updates\/[a-zA-Z0-9-]+\/[a-z0-9-]+\.bin$/.test(path) || (snapshots && /^vaults\/[a-z0-9-]+\/snapshots\/[a-z0-9-]+\/(?:[a-z0-9-]+|index)\.bin$/.test(path)));
 	for (const [path, hash] of Object.entries(s.known)) { if (!validPath(path) || typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) throw new Error('同步检查点损坏'); known[path] = hash; }
 	const paths = new Set<string>();
-	const outbox = s.outbox.map(q => { if (!q || !validPath(q.path) || paths.has(q.path) || typeof q.ciphertext !== 'string' || q.ciphertext.length > 66 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(q.hash)) throw new Error('上传队列损坏'); paths.add(q.path); fromBase64(q.ciphertext); return { path: q.path, ciphertext: q.ciphertext, hash: q.hash }; });
+	const outbox = s.outbox.map(q => { if (!q || !validPath(q.path, true) || paths.has(q.path) || typeof q.ciphertext !== 'string' || q.ciphertext.length > 66 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(q.hash)) throw new Error('上传队列损坏'); paths.add(q.path); fromBase64(q.ciphertext); return { path: q.path, ciphertext: q.ciphertext, hash: q.hash }; });
 	if (typeof s.autoSync !== 'boolean') throw new Error('同步设置损坏');
 	return { version: 1, manifest, device: s.device, meta: s.meta, vectors, hashes, known, outbox, lastSync: s.lastSync, autoSync: s.autoSync };
 }

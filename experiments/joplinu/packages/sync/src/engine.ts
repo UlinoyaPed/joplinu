@@ -3,7 +3,8 @@ import { fromBase64, toBase64, sha256 } from '../../core/src/bytes';
 import { createSyncKey, unlockSyncKey, encryptSyncObject, decryptSyncObject, validateManifest, type SyncKeyManifest } from '../../crypto/src/sync';
 import type { LibraryController } from '../../library/src/controller';
 import type { ObjectStorageProvider } from '../../storage/src/index';
-import { manifestPath, rootPath, isSyncTarget, type SyncUpdate, type QueuedObject } from './replica';
+import { manifestPath, rootPath, type SyncUpdate, type QueuedObject } from './replica';
+import { decodeUpdate, writeSnapshot, readSnapshot } from './snapshot';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -77,21 +78,29 @@ export class SyncEngine {
 		const state = this.controller.syncState!;
 		const listed = await this.listed(provider);
 		if (Object.keys(state.known).some(path => !listed.has(path))) throw new Error('远端历史对象缺失或列表尚未完整可见；已暂停同步，请重试或从独立备份恢复');
-		const updates: SyncUpdate[] = []; const known: Record<string, string> = Object.create(null);
-		let count = 0; let total = 0;
-		for (const path of [...listed].sort()) {
-			if (state.known[path] && !verifyAll) continue;
+		const documents = new Map<string, Y.Doc>(); const sizes = new Map<string, number>();
+		const known: Record<string, string> = Object.create(null); let count = 0; let total = 0;
+		const accept = (update: SyncUpdate) => {
+			let document = documents.get(update.target); if (!document) documents.set(update.target, document = new Y.Doc());
+			Y.applyUpdate(document, fromBase64(update.update));
+			const size = Y.encodeStateAsUpdate(document).length; total += size - (sizes.get(update.target) ?? 0); sizes.set(update.target, size);
+			if (total > 96 * 1024 * 1024) throw new Error('本轮合并状态超过 96 MiB 安全内存限制，请保留独立备份');
+		};
+		try {
+			if (Object.keys(state.known).length === 0) Object.assign(known, await readSnapshot(provider, this.key!, state, listed, accept));
+			for (const path of [...listed].sort()) {
+			if ((state.known[path] || known[path]) && !verifyAll) continue;
 			this.progress = `验证与下载更新 ${++count}`; this.emit();
 			const bytes = await provider.getObject(path); const hash = await sha256(bytes);
-			total += bytes.length; if (total > 96 * 1024 * 1024) throw new Error('本轮更新超过 96 MiB 安全内存限制，请保留备份并使用较新的恢复快照');
-			if (state.known[path] && state.known[path] !== hash) throw new Error('远端已处理对象发生变化，可能损坏或被回滚；已停止同步');
+			const expected = state.known[path] ?? known[path];
+			if (expected && expected !== hash) throw new Error('远端已处理对象发生变化，可能损坏或被回滚；已停止同步');
 			const plaintext = await decryptSyncObject(this.key!, path, bytes);
-			const packet = JSON.parse(decoder.decode(plaintext)) as Record<string, unknown>;
-			if (packet.format !== 'JoplinU update' || packet.version !== 1 || typeof packet.target !== 'string' || !isSyncTarget(packet.target) || typeof packet.update !== 'string' || packet.update.length > 64 * 1024 * 1024) throw new Error('解密后的更新格式无效');
-			if (!state.known[path]) updates.push({ target: packet.target, update: packet.update });
+			const packet = decodeUpdate(plaintext);
+			if (!expected) accept(packet);
 			known[path] = hash;
-		}
-		if (updates.length) await this.controller.applySyncUpdates(updates, known);
+			}
+			if (documents.size) await this.controller.applySyncUpdates([...documents].map(([target, document]) => ({ target, update: toBase64(Y.encodeStateAsUpdate(document)) })), known);
+		} finally { for (const document of documents.values()) document.destroy(); }
 	}
 	private async prepare(provider: ObjectStorageProvider) {
 		await this.controller.requireDurable();
@@ -123,7 +132,7 @@ export class SyncEngine {
 			const bytes = fromBase64(item.ciphertext); if (await sha256(bytes) !== item.hash) throw new Error('本地上传队列校验失败，保留原始数据');
 			if (await provider.headObject(item.path) === null) await provider.putObject(item.path, bytes);
 			if (await sha256(await provider.getObject(item.path)) !== item.hash) throw new Error('上传对象校验失败，队列未确认');
-			await this.controller.saveSyncState({ ...this.controller.syncState!, outbox: this.controller.syncState!.outbox.filter(q => q.path !== item.path), known: { ...this.controller.syncState!.known, [item.path]: item.hash } });
+			await this.controller.saveSyncState({ ...this.controller.syncState!, outbox: this.controller.syncState!.outbox.filter(q => q.path !== item.path), known: { ...this.controller.syncState!.known, ...(item.path.startsWith(rootPath(state) + 'updates/') ? { [item.path]: item.hash } : {}) } });
 		}
 	}
 	async sync(provider: ObjectStorageProvider, verifyAll = false) {
@@ -135,6 +144,21 @@ export class SyncEngine {
 			await this.download(provider, false);
 			await this.controller.saveSyncState({ ...this.controller.syncState!, lastSync: Date.now() });
 			this.status = 'synced';
+		});
+	}
+	async snapshot(provider: ObjectStorageProvider) {
+		await this.exclusive(async () => {
+			if (!this.key || !this.controller.syncState) throw new Error('请先输入同步密码解锁');
+			this.status = 'syncing'; this.emit();
+			await this.controller.requireDurable(); await this.ensureManifest(provider);
+			await this.download(provider, false); await this.upload(provider); await this.prepare(provider);
+			await this.controller.requireDurable(); const capture = this.controller.syncCapture();
+			this.progress = '正在创建加密恢复快照'; this.emit();
+			await writeSnapshot(this.key, this.controller.syncState!, capture, async object => {
+				await this.controller.saveSyncState({ ...this.controller.syncState!, outbox: [...this.controller.syncState!.outbox, object] });
+				await this.upload(provider);
+			});
+			this.status = 'ready';
 		});
 	}
 }
