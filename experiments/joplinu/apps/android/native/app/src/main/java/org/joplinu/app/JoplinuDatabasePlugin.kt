@@ -45,7 +45,6 @@ class JoplinuDatabasePlugin : Plugin() {
                 db.rawQuery("SELECT revision FROM vault WHERE id=1", null).use { cursor -> check(cursor.moveToFirst()); revision = cursor.getLong(0) }
                 // Keep individual rows below Android's CursorWindow limit, including CJK text.
                 db.rawQuery("SELECT payload FROM chunks ORDER BY ordinal", null).use { cursor -> while (cursor.moveToNext()) payload.append(cursor.getString(0)) }
-	            val journals = JSONObject()
 	            db.rawQuery("SELECT note_id, data, checksum FROM note_updates ORDER BY note_id,revision", null).use { cursor ->
 	                while (cursor.moveToNext()) {
 	                    val id = cursor.getString(0)
