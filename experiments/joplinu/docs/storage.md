@@ -90,3 +90,5 @@ Electron safeStorage 加密凭据文件，拒绝 basic_text。系统密钥环不
 Android 使用独立 Capacitor 插件和 `HttpURLConnection` 执行前台对象请求，S3 使用 AWS SigV4，OSS 使用 OSS V4；二者共享对象接口与错误分类，不依赖 WebView CORS。凭据经过 AndroidKeyStore 不可导出 AES-GCM 密钥加密后写入 AtomicFile；JS 只能读取公开配置和操作结果。生产版本只接受 HTTPS，正常校验证书；调试版本仅为模拟器/本机环回开放 HTTP，以便 CI 使用真实的临时 S3 服务。插件提供标准读写、分页、校验、超时和有限重试。
 
 CI 增加一个原生连接场景：在模拟器通过原生桥接访问真实 SeaweedFS S3，检查读写/列举/删除、二进制内容、磁盘凭据加密和重新加载。该自动化验证与真实 OSS 服务、Android 真机输入法验收分别记录。此步骤仍然只建立云传输和安全凭据保管，不代表已实现笔记同步或 E2EE。
+
+后续前台同步 / 快照及完整密文仓库迁移已经接入，见 [sync-protocol.md](sync-protocol.md)。迁移使用原生宿主临时目标上下文，最多两个目标；通过随机句柄访问，不向 renderer 返回凭据。复制并回读验证完整仓库后才采用目标配置，成功或失败均关闭临时目标，不删除源对象。历史传输实现和最新产品状态应以协议及验证记录区分。

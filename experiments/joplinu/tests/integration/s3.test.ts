@@ -145,7 +145,15 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 			expect(recovery.controller.vault.notes.some(note => note.id === conflict.id)).toBe(false);
 			const original = await storage.getObject(queued); const corrupt = original.slice(); corrupt[corrupt.length - 1] = corrupt[corrupt.length - 1]! ^ 1; await storage.putObject(queued, corrupt);
 			await expect(fresh.engine.sync(storage, true)).rejects.toThrow(/变化|认证/); expect(fresh.controller.document(noteId).source).toBe(merged + '恢复队列');
-			await storage.putObject(queued, original); await storage.deleteObject(queued); await expect(fresh.engine.sync(storage)).rejects.toThrow(/缺失/);
+			await storage.putObject(queued, original); await storage.deleteObject(queued); await expect(fresh.engine.sync(storage)).rejects.toThrow(/缺失/); await storage.putObject(queued, original);
+			const target = provider({ prefix: `migration/${crypto.randomUUID()}` });
+			const keyPath = `vaults/${reopened.controller.syncState!.manifest.vault}/keys/${reopened.controller.syncState!.manifest.key}.json`;
+			const protectedBytes = new Uint8Array([1, 2, 3]); await target.putObject(keyPath, protectedBytes);
+			await expect(reopened.engine.migrate(storage, target)).rejects.toThrow(/目标/); expect(await target.getObject(keyPath)).toEqual(protectedBytes);
+			await target.deleteObject(keyPath); await target.putObject('outside-vault-preserved.bin', protectedBytes);
+			const copied = await reopened.engine.migrate(storage, target); let count = 0;
+			for await (const object of listAll(storage, `vaults/${reopened.controller.syncState!.manifest.vault}/`)) { expect(await target.getObject(object.key)).toEqual(await storage.getObject(object.key)); count++; }
+			expect(copied).toBe(count); expect(await target.getObject('outside-vault-preserved.bin')).toEqual(protectedBytes);
 		} finally { for (const device of devices) { device.controller.dispose(); device.database.close(); } await rm(directory, { recursive: true, force: true }); }
 	}, 90000);
 });

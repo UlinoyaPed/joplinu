@@ -40,6 +40,8 @@ class JoplinuCloudPlugin : Plugin() {
     @PluginMethod fun probe(call: PluginCall) = handle("probe", call)
     @PluginMethod fun request(call: PluginCall) = handle("request", call)
     @PluginMethod fun clear(call: PluginCall) = handle("clear", call)
+    @PluginMethod fun openTarget(call: PluginCall) = handle("openTarget", call)
+    @PluginMethod fun closeTarget(call: PluginCall) = handle("closeTarget", call)
     override fun handleOnDestroy() { executor.shutdownNow(); super.handleOnDestroy() }
 }
 
@@ -51,6 +53,7 @@ internal class AndroidCloudHost(context: Context) {
     private var active: Profile? = null
     private var loaded = false
     private var error: String? = null
+    private val targets = mutableMapOf<String, Profile>()
     private fun key(create: Boolean): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(alias, null) as? SecretKey)?.let { return it }
@@ -111,8 +114,10 @@ internal class AndroidCloudHost(context: Context) {
             val result: Any = when (method) {
                 "info" -> info()
                 "configure" -> { if (input.opt("persist") !is Boolean) throw CloudFailure("invalid-config"); val next = profile(input); if (input.getBoolean("persist")) { if (!secure()) throw CloudFailure("secure-storage-unavailable"); encrypt(next) }; active = next; error = null; info() }
-                "clear" -> { file.delete(); active = null; error = null; info() }
-                "request" -> { val value = active ?: throw CloudFailure("not-configured"); if (input.has("expectedConfig")) { val expected = input.optJSONObject("expectedConfig") ?: throw CloudFailure("invalid-request"); for (field in value.config.keys()) if (value.config.get(field) != expected.opt(field)) throw CloudFailure("conflict") }; CloudObjectClient(value.config, value.credentials).perform(input) }
+                "openTarget" -> { if (targets.size >= 2 || input.optJSONObject("credentials") == null) throw CloudFailure("invalid-request"); val value = profile(input); val handle = java.util.UUID.randomUUID().toString(); targets[handle] = value; JSONObject().put("handle", handle).put("config", value.config) }
+                "closeTarget" -> { targets.remove(input.getString("handle")); JSONObject.NULL }
+                "clear" -> { file.delete(); active = null; targets.clear(); error = null; info() }
+                "request" -> { val value = if (input.has("target")) targets[input.getString("target")] ?: throw CloudFailure("invalid-request") else active ?: throw CloudFailure("not-configured"); if (input.has("expectedConfig")) { val expected = input.optJSONObject("expectedConfig") ?: throw CloudFailure("invalid-request"); for (field in value.config.keys()) if (value.config.get(field) != expected.opt(field)) throw CloudFailure("conflict") }; CloudObjectClient(value.config, value.credentials).perform(input) }
                 "probe" -> { val value = active ?: throw CloudFailure("not-configured"); probe(CloudObjectClient(value.config, value.credentials)) }
                 else -> throw CloudFailure("unsupported")
             }

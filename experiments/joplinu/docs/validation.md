@@ -125,3 +125,5 @@ Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中
 同一关键场景继续覆盖“永久删除 vs 离线纯删除编辑”：两侧编辑不被静默丢弃，冲突内容进入回收站；从不含该旧正文的快照初始化的新设备会认证并补齐历史依赖，之后仍可由用户再次明确删除。实际 SQLite / S3 执行通过，没有新增测试文件或通用测试框架。
 
 CI [40821146974](https://github.com/UlinoyaPed/joplinu/actions/runs/40821146974) 的真实 S3、全部既有检查、RPM 和 APK 已全部通过，包含实际 Android React → Web Crypto → SQLite 队列 → 原生 S3 的创建同步库、加密上传和 Activity 重建后密钥锁定。模拟器仍不替代物理设备输入法验收。新增 Windows NSIS 构建 / Authenticode 状态记录及打包程序启动检查，本机仅完成 workflow 静态检查与既有打包检查，Windows 最终结果以该提交 CI 为准。
+
+完整密文迁移复用原有真实 S3 / SQLite 场景，逐个比较源 / 目标整个 vault 对象集合，验证已有不同内容不被覆盖及 vault 外对象保留。另在实际 Electron 设置中创建同步库和快照、迁移到新前缀、确认采用目标配置并清空凭据字段，随后从另一独立配置目录通过恢复码在目标存储恢复笔记，实际执行通过。Windows 首次实际 runner 构建发现 urllib 打包适配器仅匹配 Unix 路径，已改为匹配两种分隔符；最终 Windows 产物仍需新提交 CI 确认。

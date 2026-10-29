@@ -18,6 +18,7 @@ export class CloudHost {
 	private loadError: string | undefined;
 	private inFlight = 0;
 	private changing = false;
+	private targets = new Map<string, { profile: Profile; provider: ObjectStorageProvider }>();
 	constructor(private readonly directory: string, private readonly secure: SecureStorage, private readonly allowLoopbackHTTP = false) { this.path = join(directory, 'cloud-settings-v1.enc'); }
 	private available() { return this.secure.isEncryptionAvailable() && this.secure.getSelectedStorageBackend?.() !== 'basic_text'; }
 	private async profile(value: unknown, previous?: Profile): Promise<Profile> {
@@ -51,8 +52,9 @@ export class CloudHost {
 		try {
 			await this.load();
 			if (method === 'info') return { ok: true, value: this.info() };
-			if (this.changing || (this.inFlight > 0 && ['configure', 'clear'].includes(method))) throw new HostError('conflict');
-			if (['configure', 'clear'].includes(method)) { this.changing = true; mutation = true; }
+			const mutations = ['configure', 'clear', 'openTarget'];
+			if (this.changing || (this.inFlight > 0 && mutations.includes(method))) throw new HostError('conflict');
+			if (mutations.includes(method)) { this.changing = true; mutation = true; }
 			else { this.inFlight++; operation = true; }
 			if (method === 'configure') {
 				const setup = input as CloudSetup; if (typeof setup?.persist !== 'boolean') throw new HostError('invalid-config');
@@ -69,14 +71,21 @@ export class CloudHost {
 				} catch (error) { provider.close?.(); throw error; }
 				this.active?.provider.close?.(); this.active = { profile, provider }; this.loadError = undefined; return { ok: true, value: this.info() };
 			}
-			if (method === 'clear') { await unlink(this.path).catch(error => { if (error.code !== 'ENOENT') throw error; }); this.active?.provider.close?.(); this.active = undefined; this.persisted = false; this.loadError = undefined; return { ok: true, value: this.info() }; }
-			if (!this.active) throw new HostError('not-configured');
-			if (method === 'probe') return { ok: true, value: await probeStorage(this.active.provider) };
+			if (method === 'openTarget') {
+				if (this.targets.size >= 2 || !(input as CloudSetup)?.credentials) throw new HostError('invalid-request');
+				const profile = await this.profile(input); const handle = crypto.randomUUID();
+				this.targets.set(handle, { profile, provider: this.provider(profile) }); return { ok: true, value: { handle, config: profile.config } };
+			}
+			if (method === 'closeTarget') { const handle = (input as { handle?: string })?.handle; if (typeof handle !== 'string') throw new HostError('invalid-request'); this.targets.get(handle)?.provider.close?.(); this.targets.delete(handle); return { ok: true, value: null }; }
+			if (method === 'clear') { await unlink(this.path).catch(error => { if (error.code !== 'ENOENT') throw error; }); this.close(); this.active = undefined; this.persisted = false; this.loadError = undefined; return { ok: true, value: this.info() }; }
+			if (method === 'probe') { if (!this.active) throw new HostError('not-configured'); return { ok: true, value: await probeStorage(this.active.provider) }; }
 			if (method !== 'request') throw new HostError('unsupported');
 			const request = input as CloudRequest;
 			if (!request || typeof request.key !== 'string' || (request.cursor !== undefined && (typeof request.cursor !== 'string' || request.cursor.length > 10000))) throw new HostError('invalid-request');
-			if (request.expectedConfig && Object.entries(this.active.profile.config).some(([field, value]) => (request.expectedConfig as unknown as Record<string, unknown>)[field] !== value)) throw new HostError('conflict');
-			const provider = this.active.provider; let value: unknown = null;
+			const selected = request.target === undefined ? this.active : typeof request.target === 'string' ? this.targets.get(request.target) : undefined;
+			if (!selected) throw new HostError(request.target === undefined ? 'not-configured' : 'invalid-request');
+			if (request.expectedConfig && Object.entries(selected.profile.config).some(([field, value]) => (request.expectedConfig as unknown as Record<string, unknown>)[field] !== value)) throw new HostError('conflict');
+			const provider = selected.provider; let value: unknown = null;
 			switch (request.operation) {
 			case 'put': {
 				if (typeof request.data !== 'string' || request.data.length > 90 * 1024 * 1024 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(request.data)) throw new HostError('invalid-request');
@@ -94,5 +103,5 @@ export class CloudHost {
 			return { ok: false, error: safe };
 		} finally { if (mutation) this.changing = false; if (operation) this.inFlight--; }
 	}
-	close() { this.active?.provider.close?.(); }
+	close() { this.active?.provider.close?.(); for (const target of this.targets.values()) target.provider.close?.(); this.targets.clear(); }
 }

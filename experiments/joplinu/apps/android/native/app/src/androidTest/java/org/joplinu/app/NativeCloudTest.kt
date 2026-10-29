@@ -63,6 +63,14 @@ class NativeCloudTest {
                 val encrypted = java.io.File(context.filesDir, "cloud-settings-v1.enc").readBytes(); assertFalse(encrypted.toString(Charsets.UTF_8).contains(secret))
                 val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }; assertNull(store.getKey("joplinu.cloud.credentials.v1", null).encoded)
                 val reopened = AndroidCloudHost(context.applicationContext).invoke("info", JSONObject()); assertTrue("Keystore restore failed", reopened.getJSONObject("value").getBoolean("configured"))
+                val targetSetup = JSONObject(setup.toString()); targetSetup.getJSONObject("config").put("prefix", "target/" + java.util.UUID.randomUUID())
+                val target = call(scenario, "openTarget", targetSetup).getJSONObject("value"); val handle = target.getString("handle")
+                try {
+                    val request = JSONObject().put("target", handle).put("expectedConfig", target.getJSONObject("config")).put("key", "migration.bin")
+                    assertTrue(call(scenario, "request", JSONObject(request.toString()).put("operation", "put").put("data", "AP+A")).getBoolean("ok"))
+                    assertEquals("AP+A", call(scenario, "request", JSONObject(request.toString()).put("operation", "get")).getString("value"))
+                    assertEquals(setup.getJSONObject("config").getString("prefix"), call(scenario, "info").getJSONObject("value").getJSONObject("config").getString("prefix"))
+                } finally { assertTrue(call(scenario, "closeTarget", JSONObject().put("handle", handle)).getBoolean("ok")) }
                 // Extend this same native scenario through the real React UI,
                 // Web Crypto, SQLite outbox and native transport. No mocked sync.
                 awaitTrue(scenario, "Boolean(document.querySelector('footer')?.textContent.includes('已保存到本地'))")

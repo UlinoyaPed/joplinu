@@ -38,7 +38,7 @@ app.whenReady().then(() => {
 	} catch { /* Open the recovery UI without replacing an unreadable database. */ }
 	const trusted = event => event.senderFrame && event.senderFrame === event.sender.mainFrame && event.senderFrame.url.startsWith('joplinu://app/');
 	const cloud = new CloudHost(app.getPath('userData'), safeStorage, !app.isPackaged);
-	for (const method of ['info', 'configure', 'probe', 'request', 'clear']) ipcMain.handle(`joplinu:cloud:${method}`, async (event, input) => {
+	for (const method of ['info', 'configure', 'probe', 'request', 'clear', 'openTarget', 'closeTarget']) ipcMain.handle(`joplinu:cloud:${method}`, async (event, input) => {
 		if (!trusted(event)) throw new Error('Untrusted cloud storage caller');
 		return cloud.invoke(method, input);
 	});

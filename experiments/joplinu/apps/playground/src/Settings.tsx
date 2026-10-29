@@ -67,7 +67,7 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 				{section === 'sync' && <>
 					<div className="status-card"><strong>本地存储 · {controller.storage.kind}</strong><p>{controller.status === 'saved' ? '当前修改已保存到本机' : controller.status === 'error' ? '本地保存失败，请导出备份' : '正在保存本地修改'}</p></div>
 					<SyncSettings controller={controller} />
-					<CloudSettings onLog={(message, failed) => controller.log(message, failed ? 'error' : 'info')} />
+					<CloudSettings controller={controller} onLog={(message, failed) => controller.log(message, failed ? 'error' : 'info')} />
 					<button onClick={() => setSection('transfer')}>打开独立加密备份与恢复</button>
 				</>}
 				{section === 'editor' && <>

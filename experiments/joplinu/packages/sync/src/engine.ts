@@ -5,6 +5,7 @@ import type { LibraryController } from '../../library/src/controller';
 import type { ObjectStorageProvider } from '../../storage/src/index';
 import { manifestPath, rootPath, MissingSyncDependencies, type SyncUpdate, type QueuedObject } from './replica';
 import { decodeUpdate, writeSnapshot, readSnapshot } from './snapshot';
+import { migrateRepository } from './migrate';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -27,10 +28,10 @@ export class SyncEngine {
 	private emit() { this.version++; for (const listener of this.listeners) listener(); }
 	get unlocked() { return this.key !== undefined; }
 	get busy() { return this.running; }
-	private async exclusive(action: () => Promise<void>) {
+	private async exclusive<T>(action: () => Promise<T>): Promise<T> {
 		if (this.running) throw new Error('同步操作正在进行');
 		this.running = true; this.error = ''; this.emit();
-		try { await action(); }
+		try { return await action(); }
 		catch (error) { this.status = 'error'; this.error = error instanceof Error ? error.message : '同步失败'; throw error; }
 		finally { this.running = false; this.progress = ''; this.emit(); }
 	}
@@ -171,6 +172,16 @@ export class SyncEngine {
 				await this.upload(provider);
 			});
 			this.status = 'ready';
+		});
+	}
+	async migrate(source: ObjectStorageProvider, target: ObjectStorageProvider, afterVerified?: () => Promise<void>): Promise<number> {
+		return this.exclusive(async () => {
+			if (!this.key || !this.controller.syncState) throw new Error('请先输入同步密码解锁');
+			this.status = 'syncing'; this.emit();
+			await this.controller.requireDurable(); await this.ensureManifest(source);
+			await this.download(source, false); await this.upload(source); await this.prepare(source);
+			const count = await migrateRepository(source, target, this.key, this.controller.syncState!, objects => { this.progress = `已复制并验证 ${objects} 个加密对象`; this.emit(); });
+			await afterVerified?.(); this.status = 'ready'; return count;
 		});
 	}
 }

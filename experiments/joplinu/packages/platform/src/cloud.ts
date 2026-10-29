@@ -8,13 +8,15 @@ export interface CloudSetup { config: CloudConfig; credentials?: StorageCredenti
 export interface CloudInfo { supported: boolean; configured: boolean; secureStorage: boolean; persisted: boolean; config?: CloudConfig; error?: string }
 export interface CloudFailure { kind: StorageErrorKind | 'secure-storage-unavailable' | 'not-configured' | 'operation-failed'; operation?: Operation; retryable?: boolean; status?: number }
 export type CloudResponse<T> = { ok: true; value: T } | { ok: false; error: CloudFailure };
-export interface CloudRequest { operation: Operation; key: string; cursor?: string; data?: string; expectedConfig?: CloudConfig }
+export interface CloudRequest { operation: Operation; key: string; cursor?: string; data?: string; expectedConfig?: CloudConfig; target?: string }
 export interface NativeCloud {
 	info(): Promise<CloudResponse<CloudInfo>>;
 	configure(setup: CloudSetup): Promise<CloudResponse<CloudInfo>>;
 	probe(): Promise<CloudResponse<ProbeResult>>;
 	request(input: CloudRequest): Promise<CloudResponse<unknown>>;
 	clear(): Promise<CloudResponse<CloudInfo>>;
+	openTarget(setup: CloudSetup): Promise<CloudResponse<{ handle: string; config: CloudConfig }>>;
+	closeTarget(input: { handle: string }): Promise<CloudResponse<null>>;
 }
 declare global { interface Window { joplinuCloud?: NativeCloud } }
 const androidCloud = registerPlugin<NativeCloud>('JoplinuCloud');
@@ -40,10 +42,10 @@ export function cloudErrorMessage(error: unknown): string {
 /** Native host signs requests and keeps long-lived cloud credentials out of note data. */
 export class HostStorageProvider implements ObjectStorageProvider {
 	readonly capabilities = basicCapabilities;
-	constructor(readonly kind: 's3' | 'oss', private readonly bridge: NativeCloud, private readonly expectedConfig?: CloudConfig) {}
+	constructor(readonly kind: 's3' | 'oss', private readonly bridge: NativeCloud, private readonly expectedConfig?: CloudConfig, private readonly target?: string) {}
 	private async call<T>(input: CloudRequest, options: RequestOptions = {}): Promise<T> {
 		if (options.signal?.aborted) throw new StorageError('cancelled', input.operation);
-		try { const result = await cloudValue(this.bridge.request({ ...input, ...(this.expectedConfig ? { expectedConfig: this.expectedConfig } : {}) })); if (options.signal?.aborted) throw new StorageError('cancelled', input.operation); return result as T; }
+		try { const result = await cloudValue(this.bridge.request({ ...input, ...(this.expectedConfig ? { expectedConfig: this.expectedConfig } : {}), ...(this.target ? { target: this.target } : {}) })); if (options.signal?.aborted) throw new StorageError('cancelled', input.operation); return result as T; }
 		catch (error) { if (error instanceof CloudError) throw new StorageError(error.detail.kind === 'operation-failed' || error.detail.kind === 'not-configured' || error.detail.kind === 'secure-storage-unavailable' ? 'network' : error.detail.kind, input.operation, error.detail.retryable ?? false, error.detail.status); throw error; }
 	}
 	async putObject(key: string, data: Uint8Array, options?: RequestOptions) { await this.call({ operation: 'put', key, data: toBase64(data) }, options); }
