@@ -28,7 +28,8 @@ class NativeDatabaseTest {
             if (evaluate(scenario, script) == "true") return
             Thread.sleep(100)
         }
-        throw AssertionError("WebView condition timed out: $script")
+        val state = evaluate(scenario, "JSON.stringify({heading:document.querySelector('h1')?.textContent,error:document.querySelector('[role=alert]')?.textContent,status:document.querySelector('footer')?.textContent})")
+        throw AssertionError("WebView condition timed out: $script; UI: $state")
     }
 
     @Test
