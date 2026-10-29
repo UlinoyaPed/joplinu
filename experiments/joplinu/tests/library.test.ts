@@ -8,13 +8,17 @@ import { createBackup, exportDirectory, importArchive, importDirectoryFiles, imp
 import { encryptBackup, decryptBackup } from '../packages/crypto/src/backup';
 
 class MemoryStorage implements VaultStorage {
-	kind = 'fault-injection'; record: StoredVault = { revision: 0, payload: null }; fail = false; delay = 0;
-	async read() { return this.record; }
-	async write(revision: number, payload: string) {
+	kind = 'fault-injection'; record: StoredVault = { revision: 0, payload: null, noteUpdates: {} }; fail = false; delay = 0;
+	async read() { return structuredClone(this.record); }
+	async write(revision: number, payload: string, journal = { updates: {}, replace: [], remove: [] }) {
 		if (this.delay) await new Promise(resolve => setTimeout(resolve, this.delay));
 		if (this.fail) throw new Error('disk full');
 		if (revision !== this.record.revision) throw new Error('stale revision');
-		this.record = { revision: revision + 1, payload }; return revision + 1;
+		const noteUpdates = structuredClone(this.record.noteUpdates ?? {});
+		for (const id of [...journal.replace, ...journal.remove]) delete noteUpdates[id];
+		for (const [id, update] of Object.entries(journal.updates)) (noteUpdates[id] ??= []).push(update);
+		this.record = { revision: revision + 1, payload, noteUpdates };
+		return revision + 1;
 	}
 	async check() { return 'ok'; }
 }
@@ -39,8 +43,8 @@ describe('local library data safety', () => {
 		const pending = library.flush(); expect(library.status).toBe('saving');
 		document.edit([{ from: 1, to: 1, insert: 'B' }]); await pending;
 		expect(library.status).toBe('saved'); expect(library.hasUnsavedChanges).toBe(false);
-		const vault = validateVault(JSON.parse(storage.record.payload!)); const restored = decodeDocument(vault.notes[0]!.state);
-		expect(restored.source).toBe('AB'); restored.destroy(); library.dispose();
+		const reopened = new LibraryController(storage); await reopened.open(); const restored = reopened.document(reopened.vault.notes[0]!.id);
+		expect(restored.source).toBe('AB'); reopened.dispose(); library.dispose();
 	});
 	it('keeps recovery data after a storage failure and retries only with the same revision', async () => {
 		const storage = new MemoryStorage(); const library = new LibraryController(storage); await library.open('original'); await library.flush();
