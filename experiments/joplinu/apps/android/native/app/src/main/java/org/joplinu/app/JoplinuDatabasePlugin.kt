@@ -8,24 +8,31 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONObject
+import org.json.JSONArray
+import android.util.Base64
+import java.security.MessageDigest
 
 /** No arbitrary SQL, file paths or credentials cross the WebView boundary. */
 @CapacitorPlugin(name = "JoplinuDatabase")
 class JoplinuDatabasePlugin : Plugin() {
     private val lock = Any()
     private val helperDelegate = lazy {
-        object : SQLiteOpenHelper(context, "joplinu.sqlite", null, 1) {
+        object : SQLiteOpenHelper(context, "joplinu-v2.sqlite", null, 1) {
             override fun onConfigure(db: SQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
             override fun onCreate(db: SQLiteDatabase) {
                 db.execSQL("CREATE TABLE vault (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL)")
                 db.execSQL("INSERT INTO vault VALUES (1,0)")
                 db.execSQL("CREATE TABLE chunks (ordinal INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
+                db.execSQL("CREATE TABLE note_updates (note_id TEXT NOT NULL, revision INTEGER NOT NULL, data BLOB NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(note_id,revision))")
             }
             override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) { throw IllegalStateException("Unsupported database migration") }
         }.also { it.setWriteAheadLoggingEnabled(true) }
     }
     private val helper get() = helperDelegate.value
 
+    private val noteId = Regex("[a-zA-Z0-9-]{1,100}")
+    private fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     @PluginMethod
     fun read(call: PluginCall) = synchronized(lock) {
         try {
@@ -39,7 +46,17 @@ class JoplinuDatabasePlugin : Plugin() {
                 db.rawQuery("SELECT payload FROM chunks ORDER BY ordinal", null).use { cursor -> while (cursor.moveToNext()) payload.append(cursor.getString(0)) }
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }
-            call.resolve(JSObject().put("revision", revision).put("payload", if (revision == 0L) JSONObject.NULL else payload.toString()))
+            val journals = JSONObject()
+            db.rawQuery("SELECT note_id, data, checksum FROM note_updates ORDER BY note_id,revision", null).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(0)
+                    val data = cursor.getBlob(1)
+                    check(digest(data) == cursor.getString(2)) { "Yjs journal checksum mismatch" }
+                    val list = journals.optJSONArray(id) ?: JSONArray().also { journals.put(id, it) }
+                    list.put(Base64.encodeToString(data, Base64.NO_WRAP))
+                }
+            }
+            call.resolve(JSObject().put("revision", revision).put("payload", if (revision == 0L) JSONObject.NULL else payload.toString()).put("noteUpdates", journals))
         } catch (_: Exception) { call.reject("无法读取本地 SQLite；原数据未重置") }
     }
 
@@ -49,10 +66,35 @@ class JoplinuDatabasePlugin : Plugin() {
         val rawRevision = call.data.opt("expectedRevision") as? Number
         val revision = rawRevision?.toDouble()?.takeIf { it.isFinite() && it >= 0 && it < 9007199254740991.0 && it % 1.0 == 0.0 }?.toLong()
         val payload = call.getString("payload")
+        val journal = call.data.optJSONObject("journal") ?: JSONObject().put("updates", JSONObject()).put("replace", JSONArray()).put("remove", JSONArray())
         if (revision == null || revision < 0 || payload == null || payload.toByteArray(Charsets.UTF_8).size > 40 * 1024 * 1024) {
             call.reject("Invalid local save request"); return@synchronized
         }
         try {
+            val changed = journal.getJSONObject("updates")
+            val replace = journal.getJSONArray("replace")
+            val remove = journal.getJSONArray("remove")
+            require(changed.length() <= 10000 && replace.length() <= 10000 && remove.length() <= 10000)
+            val updateValues = mutableListOf<Triple<String, ByteArray, String>>()
+            for (id in changed.keys()) {
+                require(noteId.matches(id))
+                val encoded = changed.getString(id)
+                require(encoded.length <= (8 * 1024 * 1024 / 3 + 2) * 4)
+                val data = Base64.decode(encoded, Base64.DEFAULT)
+                require(data.isNotEmpty() && data.size <= 8 * 1024 * 1024)
+                updateValues.add(Triple(id, data, digest(data)))
+            }
+            val dropIds = mutableSetOf<String>()
+            for (i in 0 until replace.length()) {
+                val id = replace.getString(i)
+                require(noteId.matches(id) && changed.has(id))
+                dropIds.add(id)
+            }
+            for (i in 0 until remove.length()) {
+                val id = remove.getString(i)
+                require(noteId.matches(id) && !changed.has(id))
+                dropIds.add(id)
+            }
             val parsed = JSONObject(payload)
             require(parsed.getInt("schema") == 1)
             parsed.getJSONArray("notes"); parsed.getJSONArray("folders")
@@ -73,6 +115,21 @@ class JoplinuDatabasePlugin : Plugin() {
                         insert.bindString(2, payload.substring(offset, end))
                         insert.executeInsert()
                         offset = end
+                    }
+                }
+                val delete = db.compileStatement("DELETE FROM note_updates WHERE note_id=?")
+                delete.use { statement ->
+                    for (id in dropIds) { statement.clearBindings(); statement.bindString(1, id); statement.executeUpdateDelete() }
+                }
+                val insertUpdate = db.compileStatement("INSERT INTO note_updates (note_id,revision,data,checksum) VALUES (?,?,?,?)")
+                insertUpdate.use { statement ->
+                    for ((id, data, hash) in updateValues) {
+                        statement.clearBindings()
+                        statement.bindString(1, id)
+                        statement.bindLong(2, revision + 1)
+                        statement.bindBlob(3, data)
+                        statement.bindString(4, hash)
+                        statement.executeInsert()
                     }
                 }
                 db.setTransactionSuccessful()
