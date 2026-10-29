@@ -17,6 +17,7 @@
 		"test:production": "playwright test --config playwright.production.config.ts",
 		"check": "npm run build && npm test && npm run test:packaging && npm run test:browser && npm run test:production",
 		"build:rpm": "npm run desktop:package && node scripts/collect-rpm.mjs",
+		"build:windows": "npm run build && electron-builder --config electron-builder.config.cjs --win nsis --x64 --publish never --config.directories.output=artifacts/windows && node scripts/collect-windows.mjs",
 		"android:sync": "npm exec --workspace @joplinu/android -- cap sync android",
 		"android:assemble": "cd apps/android/native && ./gradlew :app:assembleDebug :app:assembleRelease :app:lintDebug --no-daemon",
 		"build:apk": "npm run build && npm run android:sync && npm run android:assemble && node scripts/collect-android.mjs",

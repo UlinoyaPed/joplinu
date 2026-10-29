@@ -123,3 +123,5 @@ Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中
 恢复快照继续复用同一个真实 SQLite / S3 场景，验证完整分片 / 最后索引提交、新设备不重读已覆盖的历史密文，以及篡改快照分片时不替换本机笔记。该场景实际执行通过。Android 仍复用已有云测试场景，扩展为通过真实 React 设置创建加密库、上传更新并重建 Activity 后要求重新解锁，最终结果以此提交 CI 为准。
 
 同一关键场景继续覆盖“永久删除 vs 离线纯删除编辑”：两侧编辑不被静默丢弃，冲突内容进入回收站；从不含该旧正文的快照初始化的新设备会认证并补齐历史依赖，之后仍可由用户再次明确删除。实际 SQLite / S3 执行通过，没有新增测试文件或通用测试框架。
+
+CI [40821146974](https://github.com/UlinoyaPed/joplinu/actions/runs/40821146974) 的真实 S3、全部既有检查、RPM 和 APK 已全部通过，包含实际 Android React → Web Crypto → SQLite 队列 → 原生 S3 的创建同步库、加密上传和 Activity 重建后密钥锁定。模拟器仍不替代物理设备输入法验收。新增 Windows NSIS 构建 / Authenticode 状态记录及打包程序启动检查，本机仅完成 workflow 静态检查与既有打包检查，Windows 最终结果以该提交 CI 为准。

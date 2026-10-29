@@ -18,7 +18,7 @@ export async function appVersion() {
 export async function writeManifest(directory, kind, signed) {
 	const files = [];
 	for (const filename of (await readdir(directory)).sort()) {
-		if (!/\.(apk|rpm|asc)$/.test(filename)) continue;
+		if (!/\.(apk|rpm|asc|exe)$/.test(filename)) continue;
 		const hash = createHash('sha256');
 		for await (const chunk of createReadStream(join(directory, filename))) hash.update(chunk);
 		files.push({ filename, sha256: hash.digest('hex') });

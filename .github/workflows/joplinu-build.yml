@@ -1,4 +1,4 @@
-name: JoplinU RPM and APK
+name: JoplinU desktop and Android builds
 
 on:
   push:
@@ -90,6 +90,45 @@ jobs:
         if: failure()
         with:
           name: joplinu-electron-diagnostics
+          path: experiments/joplinu/test-results/
+
+  windows:
+    needs: [checks, storage]
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: experiments/joplinu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: experiments/joplinu/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - name: Build Windows installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.WINDOWS_CERTIFICATE_BASE64 || '' }}
+          CSC_KEY_PASSWORD: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && inputs.sign)) && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: npm run build:windows
+      - name: Launch packaged Windows application
+        env:
+          JOPLINU_ELECTRON_EXECUTABLE: ${{ github.workspace }}/experiments/joplinu/artifacts/windows/win-unpacked/JoplinU.exe
+        run: npm run test:desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: joplinu-windows-x64-installer
+          if-no-files-found: error
+          path: |
+            experiments/joplinu/artifacts/windows/*.exe
+            experiments/joplinu/artifacts/windows/SHA256SUMS
+            experiments/joplinu/artifacts/windows/build-info.json
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: joplinu-windows-diagnostics
           path: experiments/joplinu/test-results/
 
   apk:

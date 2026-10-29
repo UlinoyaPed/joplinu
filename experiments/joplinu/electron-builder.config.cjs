@@ -16,5 +16,7 @@ module.exports = {
 		vendor: 'JoplinU',
 	},
 	rpm: { depends: ['gtk3', 'libnotify', 'nss', 'libXScrnSaver', 'libXtst', 'xdg-utils', 'at-spi2-core', 'libdrm', 'mesa-libgbm'] },
+	win: { target: [{ target: 'nsis', arch: ['x64'] }], icon: 'apps/desktop/resources/icon.png', artifactName: 'joplinu-${version}-${arch}-setup.${ext}' },
+	nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, createDesktopShortcut: false },
 	publish: null,
 };

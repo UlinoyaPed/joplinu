@@ -3,7 +3,7 @@
 	"productName": "JoplinU",
 	"version": "0.1.0",
 	"private": true,
-	"description": "JoplinU Markdown editor prototype",
+	"description": "JoplinU offline Markdown notes with encrypted synchronization",
 	"main": "main.cjs",
 	"author": "JoplinU contributors",
 	"homepage": "https://github.com/UlinoyaPed/joplinu",

@@ -1,6 +1,6 @@
-# RPM / APK 构建与签名
+# 桌面 / APK 构建与签名
 
-构建入口是 `.github/workflows/joplinu-build.yml`，完成独立检查 workflow 与真实 S3 服务兼容测试后并行构建 Electron Linux x64 RPM 和 Capacitor Android APK。它不依赖旧 Joplin 构建工程。当前打包的是本地笔记库开发版，包含多级目录、SQLite 保存、历史与备份。云同步和同步 E2EE 尚未接入，安装包不代表这些能力已完成。
+构建入口是 `.github/workflows/joplinu-build.yml`，完成独立检查 workflow 与真实 S3 服务测试后并行构建 Electron Linux x64 RPM、Windows x64 NSIS 安装包和 Capacitor Android APK。不依赖旧 Joplin 构建工程。当前开发版包含本地笔记库及前台加密同步 / 恢复快照；真实 OSS、真机 IME、后台任务和大容量仍需分别验收。
 
 ## 自动构建
 
@@ -11,6 +11,8 @@
 - 缺少全部密钥时继续生成未签名 RPM、可安装的 debug APK，以及明确标记 `unsigned` 的 release APK。只配置部分必需密钥时失败，不静默降级。
 
 Actions 页面中下载 `joplinu-linux-x64-rpm` 和 `joplinu-android-apk` 两个 artifact。文件名与 `build-info.json` 标明签名状态、版本和提交；`SHA256SUMS` 提供每个安装包的校验值。未签名 release APK 需要正式签名后才能安装，当前可直接体验 debug APK。
+
+Windows artifact 为 `joplinu-windows-x64-installer`，包含 NSIS EXE、校验值和签名状态。CI 在实际 Windows runner 构建，启动打包后的程序验证隔离、SQLite 重开和损坏资料保护。安装器默认按用户安装，可选择目录；卸载不自动删除用户数据。没有证书时明确生成 unsigned；配置证书后必须通过系统 Authenticode 校验。
 
 构建不自动发布 GitHub Release，也不自动上传到应用商店。
 
@@ -27,6 +29,8 @@ Actions 页面中下载 `joplinu-linux-x64-rpm` 和 `joplinu-android-apk` 两个
 | `RPM_GPG_PRIVATE_KEY_BASE64` | 导出的完整 GPG 私钥文件的 base64 |
 | `RPM_GPG_KEY_ID` | 对应完整 fingerprint，40 或 64 位十六进制 |
 | `RPM_GPG_PASSPHRASE` | GPG 私钥口令；无口令的测试或个人密钥可留空 |
+| `WINDOWS_CERTIFICATE_BASE64` | 可选 Windows Authenticode PFX 证书的 base64 |
+| `WINDOWS_CERTIFICATE_PASSWORD` | 对应 PFX 密码；证书没有密码时可留空 |
 
 正式 APK 后续升级必须沿用同一 keystore。debug 包 ID 是 `org.joplinu.app.debug`，正式包 ID 是 `org.joplinu.app`，可以并存。原始密钥需要独立备份，GitHub Secrets 不作为唯一恢复来源。
 
@@ -56,6 +60,8 @@ npm run build:rpm
 ```
 
 桌面预览可在构建后运行 `npx electron apps/desktop`。CI 使用 Xvfb 启动打包后的真实程序，检查资源加载、四模式入口、renderer 隔离和实际 SQLite 重启恢复。测试进程使用的 `--no-sandbox` 不写入应用启动器，正式程序默认保留 sandbox / contextIsolation。
+
+Windows 本机构建：安装 Node 24 后在工程目录运行 `npm ci --ignore-scripts`、`node node_modules/electron/install.js`、`npm run build:windows`。不在 Linux 上模拟宣称 Windows 验收。
 
 Android：
 
