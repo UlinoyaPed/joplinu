@@ -5,10 +5,20 @@ import { createBackup, readBackup, searchableNotes } from '../packages/library/s
 import type { StoredVault, VaultStorage } from '../packages/database/src/index';
 
 function storage(): VaultStorage {
-	let record: StoredVault = { revision: 0, payload: null };
-	return { kind: 'operation-test', read: async () => record, check: async () => 'ok', write: async (revision, payload) => {
-		if (record.revision !== revision) throw new Error('stale revision'); record = { revision: revision + 1, payload }; return record.revision;
-	} };
+	let record: StoredVault = { revision: 0, payload: null, noteUpdates: {} };
+	return {
+		kind: 'operation-test',
+		read: async () => structuredClone(record),
+		check: async () => 'ok',
+		write: async (revision, payload, journal = { updates: {}, replace: [], remove: [] }) => {
+			if (record.revision !== revision) throw new Error('stale revision');
+			const noteUpdates = structuredClone(record.noteUpdates ?? {});
+			for (const id of [...journal.replace, ...journal.remove]) delete noteUpdates[id];
+			for (const [id, update] of Object.entries(journal.updates)) (noteUpdates[id] ??= []).push(update);
+			record = { revision: revision + 1, payload, noteUpdates };
+			return record.revision;
+		},
+	};
 }
 
 describe('library organization and older backups', () => {
