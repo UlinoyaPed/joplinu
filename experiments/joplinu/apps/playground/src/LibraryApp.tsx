@@ -217,7 +217,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const historyEntry = current?.history.find(entry => entry.id === historyId);
 	const viewedAttachment = modal?.kind === 'attachment' ? vault.attachments.find(item => item.id === modal.id) : undefined;
 	const feedback = <>{(error || controller.error) && <div role="alert" className="problem">{error || controller.error}<button onClick={() => run(() => exportData('backup'))}>导出当前备份</button>{error && <button onClick={() => setError('')}>关闭提示</button>}</div>}
-			{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')}>×</button></div>}{busy && <div role="status" className="notice">正在处理文件，请稍候…</div>}</>;
+			{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')}>×</button></div>}{controller.syncRecoveryNote && <div className="notice" role="status">{controller.syncRecoveryNote}<button onClick={() => { activateFolder(null, true); controller.dismissSyncRecovery(); }}>查看回收站</button><button aria-label="关闭同步恢复提示" onClick={() => controller.dismissSyncRecovery()}>×</button></div>}{busy && <div role="status" className="notice">正在处理文件，请稍候…</div>}</>;
 	return <DialogErrorContext.Provider value={error || controller.error}><div className={`library-shell ${!p.showSidebar ? 'sidebar-hidden' : ''} ${!p.showNoteList ? 'list-hidden' : ''} mobile-${mobileView}`} style={{ '--sidebar-width': `${p.sidebarWidth}px`, '--list-width': `${p.noteListWidth}px` } as React.CSSProperties}>
 		{sidebar && <button className="navigation-scrim" aria-label="关闭笔记导航" onClick={() => setSidebar(false)} />}
 		<aside ref={navigationRef} className={`library-sidebar ${sidebar ? 'open' : ''}`} aria-label="笔记导航">

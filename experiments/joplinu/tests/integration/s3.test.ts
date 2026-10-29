@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LibraryController } from '../../packages/library/src/controller';
 import { SyncEngine, recoveryCode } from '../../packages/sync/src/engine';
+import { createNote } from '../../packages/library/src/model';
 import type { StoredVault, JournalWrite, VaultStorage } from '../../packages/database/src/index';
 
 describe('real SeaweedFS S3 API with AWS SDK v3', () => {
@@ -128,6 +129,20 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 			storage.getObject = async (key, options) => { if (historical.has(key)) historicalReads++; return get(key, options); };
 			await fresh.engine.sync(storage); expect(historicalReads).toBe(0); storage.getObject = get;
 			expect(fresh.controller.document(noteId).source).toBe(merged + '恢复队列');
+			// Permanent deletion versus an offline pure deletion must retain the edit,
+			// including on a device bootstrapped from a snapshot without that old body.
+			const conflict = createNote('删除后的离线修改', null, '保留正文');
+			reopened.controller.change({ ...reopened.controller.vault, notes: [...reopened.controller.vault.notes, conflict] }); await reopened.engine.sync(storage); await b.engine.sync(storage);
+			b.controller.change({ ...b.controller.vault, preferences: { ...b.controller.vault.preferences, history: false } });
+			b.controller.document(conflict.id).edit([{ from: 0, to: 1, insert: '' }]);
+			reopened.controller.trashNotes([conflict.id], true); reopened.controller.change({ ...reopened.controller.vault, notes: reopened.controller.vault.notes.filter(note => note.id !== conflict.id) });
+			await reopened.engine.snapshot(storage); await b.engine.sync(storage);
+			expect(b.controller.document(conflict.id).source).toBe('留正文'); expect(b.controller.vault.notes.find(note => note.id === conflict.id)!.deletedAt).not.toBeNull();
+			const recovery = await device('late-recovery'); recovery.controller.change({ ...recovery.controller.vault, notes: [], folders: [] });
+			await recovery.engine.join(storage, recoveryCode(reopened.controller.syncState!.manifest), password); await recovery.engine.sync(storage);
+			expect(recovery.controller.document(conflict.id).source).toBe('留正文'); expect(recovery.controller.syncRecoveryNote).toContain('回收站');
+			recovery.controller.change({ ...recovery.controller.vault, notes: recovery.controller.vault.notes.filter(note => note.id !== conflict.id) }); await recovery.engine.sync(storage);
+			expect(recovery.controller.vault.notes.some(note => note.id === conflict.id)).toBe(false);
 			const original = await storage.getObject(queued); const corrupt = original.slice(); corrupt[corrupt.length - 1] = corrupt[corrupt.length - 1]! ^ 1; await storage.putObject(queued, corrupt);
 			await expect(fresh.engine.sync(storage, true)).rejects.toThrow(/变化|认证/); expect(fresh.controller.document(noteId).source).toBe(merged + '恢复队列');
 			await storage.putObject(queued, original); await storage.deleteObject(queued); await expect(fresh.engine.sync(storage)).rejects.toThrow(/缺失/);

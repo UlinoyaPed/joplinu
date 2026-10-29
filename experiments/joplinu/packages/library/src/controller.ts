@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { NoteDocument, minimalEdit } from '../../document/src/index';
 import type { VaultStorage, JournalWrite } from '../../database/src/index';
 import { createVault, createNote, decodeDocument, encodeDocument, fromBase64, toBase64, sha256, newId, validateVault, type Vault, type Note } from './model';
-import { LibraryReplica, validateSyncState, type SyncState, type SyncUpdate } from '../../sync/src/replica';
+import { LibraryReplica, validateSyncState, MissingSyncDependencies, type SyncState, type SyncUpdate } from '../../sync/src/replica';
 import type { SyncKeyManifest } from '../../crypto/src/sync';
 
 export class LibraryController {
@@ -22,6 +22,7 @@ export class LibraryController {
 	private replica: LibraryReplica | undefined;
 	private applyingRemote = false;
 	syncState: SyncState | undefined;
+	syncRecoveryNote = '';
 	status: 'loading' | 'pending' | 'saving' | 'saved' | 'error' = 'loading';
 	error = '';
 	vault!: Vault;
@@ -217,6 +218,7 @@ export class LibraryController {
 		this.change({ ...this.vault, logs: [{ at: Date.now(), level, message }, ...this.vault.logs].slice(0, 200) });
 	}
 	get hasUnsavedChanges() { return this.generation !== this.savedGeneration; }
+	dismissSyncRecovery() { this.syncRecoveryNote = ''; this.emit(); }
 	/** Creates a new metadata replica; joining merges rather than discarding this device's notes. */
 	async enableSync(manifest: SyncKeyManifest) {
 		if (this.syncState) throw new Error('当前资料库已连接同步库，请先锁定或使用现有同步库');
@@ -244,9 +246,11 @@ export class LibraryController {
 				if (update.target === 'meta') candidate.apply(update.update);
 				else { const id = update.target.slice(5); let body = bodies.get(id); if (!body) bodies.set(id, body = new NoteDocument()); body.applyRemote(fromBase64(update.update)); }
 			}
-			if (candidate.doc.store.pendingStructs || candidate.doc.store.pendingDs || [...bodies.values()].some(body => body.doc.store.pendingStructs || body.doc.store.pendingDs)) throw new Error('远端更新依赖尚未到齐，请稍后重试；已保留本地数据');
+			if (candidate.doc.store.pendingStructs || candidate.doc.store.pendingDs || [...bodies.values()].some(body => body.doc.store.pendingStructs || body.doc.store.pendingDs)) throw new MissingSyncDependencies();
 			const states = new Map([...bodies].map(([id, document]) => [id, encodeDocument(document)]));
 			const vault = candidate.project(this.vault, states);
+			const recovered = [...candidate.recovered].filter(id => !this.vault.notes.some(note => note.id === id && note.deletedAt !== null));
+			if (recovered.length) vault.logs = [{ at: Date.now(), level: 'info' as const, message: `检测到删除后的离线编辑，${recovered.length} 篇笔记已保留到回收站` }, ...vault.logs].slice(0, 200);
 			for (const attachment of vault.attachments) if (!this.vault.attachments.some(old => old.id === attachment.id && old.data === attachment.data && old.sha256 === attachment.sha256) && await sha256(fromBase64(attachment.data)) !== attachment.sha256) throw new Error('远端附件校验失败，已停止合并');
 			if (generation !== this.generation || [...this.documents.values()].some(document => document.isComposing)) throw new Error('本地正在编辑，请稍后重试同步；修改均已保留');
 			this.applyingRemote = true;
@@ -255,6 +259,7 @@ export class LibraryController {
 				for (const [id, document] of this.documents) if (!vault.notes.some(note => note.id === id)) { document.destroy(); this.documents.delete(id); }
 				this.replica.destroy(); this.replica = candidate;
 				this.syncState = { ...this.syncState, meta: candidate.encode(), known: { ...this.syncState.known, ...known } };
+				if (recovered.length) this.syncRecoveryNote = `检测到删除后的离线编辑，已将 ${recovered.length} 篇笔记保留到回收站。`;
 				this.change(vault);
 			} finally { this.applyingRemote = false; }
 			await this.requireDurable();

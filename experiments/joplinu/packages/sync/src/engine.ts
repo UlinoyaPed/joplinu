@@ -3,7 +3,7 @@ import { fromBase64, toBase64, sha256 } from '../../core/src/bytes';
 import { createSyncKey, unlockSyncKey, encryptSyncObject, decryptSyncObject, validateManifest, type SyncKeyManifest } from '../../crypto/src/sync';
 import type { LibraryController } from '../../library/src/controller';
 import type { ObjectStorageProvider } from '../../storage/src/index';
-import { manifestPath, rootPath, type SyncUpdate, type QueuedObject } from './replica';
+import { manifestPath, rootPath, MissingSyncDependencies, type SyncUpdate, type QueuedObject } from './replica';
 import { decodeUpdate, writeSnapshot, readSnapshot } from './snapshot';
 
 const encoder = new TextEncoder();
@@ -99,7 +99,19 @@ export class SyncEngine {
 			if (!expected) accept(packet);
 			known[path] = hash;
 			}
-			if (documents.size) await this.controller.applySyncUpdates([...documents].map(([target, document]) => ({ target, update: toBase64(Y.encodeStateAsUpdate(document)) })), known);
+			const apply = () => this.controller.applySyncUpdates([...documents].map(([target, document]) => ({ target, update: toBase64(Y.encodeStateAsUpdate(document)) })), known);
+			if (documents.size) try { await apply(); } catch (error) {
+				if (!(error instanceof MissingSyncDependencies)) throw error;
+				// A long-offline device can edit a note removed before a snapshot.
+				// Preserve all original logs and recover its missing body dependencies.
+				this.progress = '正在补齐离线编辑依赖'; this.emit();
+				for (const path of listed) {
+					const bytes = await provider.getObject(path); const hash = await sha256(bytes); const expected = state.known[path] ?? known[path];
+					if (expected && expected !== hash) throw new Error('恢复依赖时发现历史对象损坏');
+					accept(decodeUpdate(await decryptSyncObject(this.key!, path, bytes))); known[path] = hash;
+				}
+				await apply();
+			}
 		} finally { for (const document of documents.values()) document.destroy(); }
 	}
 	private async prepare(provider: ObjectStorageProvider) {

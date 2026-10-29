@@ -39,7 +39,7 @@ export function SyncSettings({ controller }: { controller: LibraryController }) 
 			<label className="setting-toggle"><span>前台自动同步<small>解锁后，应用在前台且网络可用时每分钟同步。后台进程不负责文档合并。</small></span><input type="checkbox" checked={state.autoSync} disabled={engine.busy} onChange={event => void run(() => controller.saveSyncState({ ...controller.syncState!, autoSync: event.target.checked }))} /></label>
 			<p className="hint">待上传加密对象：{state.outbox.length} · {engine.unlocked ? '密钥已解锁' : '密钥已锁定'}<br />{state.lastSync ? `上次同步完成：${formatDate(state.lastSync, controller.vault.preferences)}` : '尚未完成首次同步'}</p>
 		</>}
-		{engine.progress && <p role="status">{engine.progress}</p>}{(error || engine.error) && <p role="alert">{error || engine.error}</p>}{message && <p role="status">{message}</p>}
+		{engine.progress && <p role="status">{engine.progress}</p>}{(error || engine.error) && <p role="alert">{error || engine.error}</p>}{message && <p role="status">{message}</p>}{controller.syncRecoveryNote && <p role="status">{controller.syncRecoveryNote}</p>}
 		<p className="hint">恢复快照可加快新设备初始化，全部云端更新继续保留。云端仍可删除或回滚数据，请定期导出独立加密备份。密钥轮换和系统后台传输将单独提供。</p>
 	</section>;
 }

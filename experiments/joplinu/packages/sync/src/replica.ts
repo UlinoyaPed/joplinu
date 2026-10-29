@@ -11,6 +11,7 @@ export interface SyncState {
 	autoSync: boolean;
 }
 export interface SyncUpdate { target: string; update: string }
+export class MissingSyncDependencies extends Error { constructor() { super('远端更新依赖尚未到齐，正在等待完整历史'); this.name = 'MissingSyncDependencies'; } }
 const id = /^[a-zA-Z0-9-]{1,100}$/;
 export const isSyncTarget = (value: string) => /^(?:meta|note:[a-zA-Z0-9-]{1,100})$/.test(value);
 export const rootPath = (state: SyncState) => `vaults/${state.manifest.vault}/`;
@@ -34,6 +35,7 @@ export function validateSyncState(value: unknown): SyncState {
 /** Per-field CRDT metadata. Bodies retain their independent authoritative Y.Text documents. */
 export class LibraryReplica {
 	readonly doc = new Y.Doc();
+	readonly recovered = new Set<string>();
 	private readonly fields = this.doc.getMap<unknown>('fields');
 	constructor(state?: string) { if (state) Y.applyUpdate(this.doc, fromBase64(state)); }
 	encode() { return toBase64(Y.encodeStateAsUpdate(this.doc)); }
@@ -43,10 +45,13 @@ export class LibraryReplica {
 		this.doc.transact(() => {
 			const collection = <T extends { id: string }>(kind: string, previous: T[], current: T[], ignored: string[] = []) => {
 				const old = new Map(previous.map(v => [v.id, v])); const present = new Set(current.map(v => v.id));
-				for (const entry of previous) if (!present.has(entry.id)) this.fields.set(`${kind}/${entry.id}/removed`, true);
+				for (const entry of previous) if (!present.has(entry.id)) {
+					this.fields.set(`${kind}/${entry.id}/removed`, true);
+					if (kind === 'note') { const note = entry as unknown as Note; this.fields.set(`${kind}/${entry.id}/removedVersion`, bodyVersion(note.state)); this.fields.set(`${kind}/${entry.id}/removedMetadata`, metadataVersion(note)); }
+				}
 				for (const entry of current) {
 					const prior = old.get(entry.id);
-					if (!prior) this.fields.set(`${kind}/${entry.id}/removed`, false);
+					if (!prior || (this.fields.get(`${kind}/${entry.id}/removed`) === true && JSON.stringify(prior) !== JSON.stringify(entry))) this.fields.set(`${kind}/${entry.id}/removed`, false);
 					for (const [field, value] of Object.entries(entry)) if (field !== 'id' && !ignored.includes(field) && (!prior || JSON.stringify(value) !== JSON.stringify((prior as Record<string, unknown>)[field]))) this.fields.set(`${kind}/${entry.id}/${field}`, value);
 				}
 			};
@@ -80,14 +85,45 @@ export class LibraryReplica {
 			while (cursor && !seen.includes(cursor.id)) { seen.push(cursor.id); cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined; }
 			if (cursor) byId.get(seen.slice(seen.indexOf(cursor.id)).sort()[0]!)!.parentId = null;
 		}
-		const notes = rows('note').map(record => {
+		this.recovered.clear();
+		const notes = [...groups.get('note')?.values() ?? []].flatMap(raw => {
+			const { removed, removedVersion, removedMetadata, ...record } = raw;
 			const noteId = String(record.id); const state = states.get(noteId);
-			if (!state) throw new Error('远端笔记更新尚不完整，请稍后重试；本地资料未替换');
 			const tags = Object.entries(groups.get('tag')?.get(noteId) ?? {}).filter(([k, v]) => k !== 'id' && v === true).map(([k]) => decodeURIComponent(k));
 			const history = rows(`history-${noteId}`).sort((a, b) => Number(b.createdAt) - Number(a.createdAt) || String(a.id).localeCompare(String(b.id))).slice(0, 1000);
-			return { ...record, state, tags, history, folderId: folderIds.has(String(record.folderId)) ? record.folderId : null, completedAt: record.kind === 'note' ? null : record.completedAt };
+			if (removed === true) {
+				const metadataChanged = typeof removedMetadata === 'string' && metadataVersion({ ...record, tags, history } as unknown as Note) !== removedMetadata;
+				if (!state) { if (metadataChanged) throw new MissingSyncDependencies(); return []; }
+				if (!metadataChanged && typeof removedVersion === 'string' && !hasNewEdits(state, removedVersion)) return [];
+				this.recovered.add(noteId);
+			}
+			if (!state) throw new MissingSyncDependencies();
+			return [{ ...record, state, tags, history, deletedAt: removed === true ? record.deletedAt ?? Math.max(1, Number(record.updatedAt)) : record.deletedAt, folderId: folderIds.has(String(record.folderId)) ? record.folderId : null, completedAt: record.kind === 'note' ? null : record.completedAt }];
 		}) as unknown as Note[];
 		const attachments = rows('attachment') as unknown as Attachment[];
 		return validateVault({ ...local, folders, notes, attachments });
 	}
+}
+
+interface BodyVersion { vector: string; deletes: [number, [number, number][]][] }
+function bodyVersion(state: string): string {
+	const bytes = fromBase64(state);
+	const deletes: BodyVersion['deletes'] = [...Y.decodeUpdate(bytes).ds.clients].map(([client, ranges]) => [client, ranges.map(range => [range.clock, range.len])]);
+	return JSON.stringify({ vector: toBase64(Y.encodeStateVectorFromUpdate(bytes)), deletes });
+}
+/** Exact CRDT insertion/deletion coverage, not a collision-prone text fingerprint. */
+function hasNewEdits(state: string, baseline: string): boolean {
+	const before = JSON.parse(baseline) as BodyVersion;
+	const bytes = fromBase64(state); const vector = Y.decodeStateVector(fromBase64(before.vector));
+	for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVectorFromUpdate(bytes))) if (clock > (vector.get(client) ?? 0)) return true;
+	const removed = new Map(before.deletes);
+	for (const [client, ranges] of Y.decodeUpdate(bytes).ds.clients) for (const range of ranges) {
+		let start = range.clock; const end = start + range.len;
+		for (const [clock, length] of removed.get(client) ?? []) { if (clock > start) break; if (clock + length > start) start = clock + length; if (start >= end) break; }
+		if (start < end) return true;
+	}
+	return false;
+}
+function metadataVersion(note: Note): string {
+	return JSON.stringify({ title: note.title, folderId: note.folderId, tags: [...note.tags].sort(), kind: note.kind, completedAt: note.completedAt, pinned: note.pinned, location: note.location, history: note.history.map(entry => entry.id).sort() });
 }
