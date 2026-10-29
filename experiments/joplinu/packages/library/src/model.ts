@@ -22,6 +22,7 @@ export interface Note {
 	id: string; folderId: string | null; title: string; tags: string[]; state: string;
 	createdAt: number; updatedAt: number; deletedAt: number | null; history: HistoryEntry[];
 	location: { latitude: number; longitude: number } | null;
+	kind: 'note' | 'todo'; completedAt: number | null; pinned: boolean;
 }
 export interface Attachment { id: string; name: string; mime: string; data: string; sha256: string; createdAt: number }
 export interface LogEntry { at: number; level: 'info' | 'error'; message: string }
@@ -39,7 +40,7 @@ export function decodeDocument(state: string) {
 }
 export function createNote(title: string, folderId: string | null, source = ''): Note {
 	const document = new NoteDocument(source);
-	try { return { id: newId(), folderId, title: title.trim() || '无标题笔记', tags: [], state: encodeDocument(document), createdAt: Date.now(), updatedAt: Date.now(), deletedAt: null, history: [], location: null }; }
+	try { return { id: newId(), folderId, title: title.trim() || '无标题笔记', tags: [], state: encodeDocument(document), createdAt: Date.now(), updatedAt: Date.now(), deletedAt: null, history: [], location: null, kind: 'note', completedAt: null, pinned: false }; }
 	finally { document.destroy(); }
 }
 export function createVault(source = ''): Vault {
@@ -124,9 +125,12 @@ export function validateVault(value: unknown): Vault {
 	const folders: Folder[] = list(v.folders).map(value => { const f = object(value); return { id: id(f.id), name: string(f.name), parentId: optionalId(f.parentId), createdAt: time(f.createdAt) }; });
 	const notes: Note[] = list(v.notes).map(value => {
 		const n = object(value);
+		const kind = n.kind === undefined ? 'note' : enumeration(n.kind, ['note', 'todo']);
+		const completedAt = n.completedAt === undefined || n.completedAt === null ? null : time(n.completedAt);
+		if ((n.pinned !== undefined && typeof n.pinned !== 'boolean') || (kind === 'note' && completedAt !== null)) throw new Error('无效的笔记类型或待办状态');
 		const location = n.location === null ? null : { latitude: number(object(n.location).latitude, -90, 90), longitude: number(object(n.location).longitude, -180, 180) };
 		return { id: id(n.id), folderId: optionalId(n.folderId), title: string(n.title), tags: list(n.tags, 100).map(t => string(t, 100)), state: string(n.state, 8 * 1024 * 1024),
-			createdAt: time(n.createdAt), updatedAt: time(n.updatedAt), deletedAt: n.deletedAt === null ? null : time(n.deletedAt), location,
+			createdAt: time(n.createdAt), updatedAt: time(n.updatedAt), deletedAt: n.deletedAt === null ? null : time(n.deletedAt), location, kind, completedAt, pinned: n.pinned === true,
 			history: list(n.history, 1000).map(value => { const h = object(value); return { id: id(h.id), source: string(h.source, 2 * 1024 * 1024), createdAt: time(h.createdAt), reason: string(h.reason) }; }),
 		};
 	});

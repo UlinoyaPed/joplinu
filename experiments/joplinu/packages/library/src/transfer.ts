@@ -1,3 +1,4 @@
+import { compileSearch, matchesSearch } from './search';
 import { Unzip, UnzipInflate, strFromU8, strToU8, zipSync } from 'fflate';
 import { minimalEdit } from '../../document/src/index';
 import { mapMarkdownDestinations } from '../../markdown/src/index';
@@ -198,11 +199,12 @@ export async function makeAttachment(file: File, imageMaxWidth: number): Promise
 
 const searchCache = new WeakMap<object, string>();
 export function searchableNotes(vault: Vault, query: string, folderId: string | null, trash: boolean, tag?: string) {
-	const words = query.trim().toLocaleLowerCase(vault.preferences.language).split(/\s+/).filter(Boolean);
+	const search = compileSearch(query);
 	return vault.notes.filter(note => !!note.deletedAt === trash && (!folderId || note.folderId === folderId) && (tag === undefined || note.tags.includes(tag))).filter(note => {
-		if (!words.length) return true;
-		let text = searchCache.get(note);
-		if (text === undefined) { const document = decodeDocument(note.state); try { text = [note.title, ...note.tags, document.source].join('\n'); searchCache.set(note, text); } finally { document.destroy(); } }
-		const content = [text, ...folderPath(vault, note.folderId)].join('\n').toLocaleLowerCase(vault.preferences.language); return words.every(word => content.includes(word));
-	}).sort((a, b) => vault.preferences.sort === 'title' ? a.title.localeCompare(b.title, vault.preferences.language) : b.updatedAt - a.updatedAt);
+		return matchesSearch(note, folderPath(vault, note.folderId), () => {
+			let text = searchCache.get(note);
+			if (text === undefined) { const document = decodeDocument(note.state); try { text = document.source; searchCache.set(note, text); } finally { document.destroy(); } }
+			return text;
+		}, search, vault.preferences.language);
+	}).sort((a, b) => Number(b.pinned) - Number(a.pinned) || (vault.preferences.sort === 'title' ? a.title.localeCompare(b.title, vault.preferences.language) : b.updatedAt - a.updatedAt));
 }

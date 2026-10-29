@@ -228,3 +228,21 @@ textarea { font: inherit; color: var(--text); background: var(--surface-alt); bo
 	.history-layout .choice-list { max-height: 30vh; overflow: auto; }
 	footer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
+
+/* Everyday note and task controls */
+.search-help { font-size: 11px; padding: 0 12px 8px; color: var(--muted); }
+.search-help summary { cursor: pointer; }
+.search-help p { line-height: 1.9; overflow-wrap: anywhere; }
+.search-help code { color: var(--text); }
+.note-item > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-completed { text-decoration: line-through; color: var(--muted); }
+.pin-indicator { color: var(--accent); }
+.current-todo { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.current-todo input { min-height: 18px; width: 18px; height: 18px; margin: 0 4px; accent-color: var(--accent); }
+.formatbar { flex-shrink: 0; max-height: 100px; overflow: auto; }
+.formatbar button { min-width: 33px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+.formatbar button[aria-label=加粗] { font-weight: 700; }
+.formatbar button[aria-label=斜体] { font-style: italic; }
+.source-host .cm-content { padding: 16px 28px 80px; min-height: 100%; }
+@media (max-width: 700px) { .source-host .cm-content { padding-inline: 18px; } }
+@media (max-width: 700px) { .formatbar { flex-wrap: nowrap; max-height: none; overflow-x: auto; min-height: 42px; } .formatbar button { flex-shrink: 0; min-height: 36px; } }

@@ -35,10 +35,10 @@ try {
 	await expect(reopened.locator('footer')).toContainText('已保存到本地 · SQLite');
 	await application.close();
 	const corrupted = Buffer.from('corrupted SQLite test fixture');
-	await writeFile(join(profile, 'joplinu.sqlite'), corrupted);
+	await writeFile(join(profile, 'joplinu-v2.sqlite'), corrupted);
 	application = await electron.launch(options);
 	const recovery = await application.firstWindow();
 	await expect(recovery.getByRole('heading', { name: '无法打开本地笔记库' })).toBeVisible();
-	expect(await readFile(join(profile, 'joplinu.sqlite'))).toEqual(corrupted);
+	expect(await readFile(join(profile, 'joplinu-v2.sqlite'))).toEqual(corrupted);
 	console.log('Electron isolation, SQLite restart recovery and non-destructive corrupt-database startup verified');
 } finally { await application.close(); await rm(profile, { recursive: true, force: true }); }

@@ -10,15 +10,19 @@ class VaultDatabase {
 		catch (error) { this.database.close(); throw error; }
 	}
 	read() {
+		this.database.exec('BEGIN');
+		try {
 		const record = this.database.prepare('SELECT revision, payload FROM vault WHERE id=1').get();
 		const noteUpdates = Object.create(null);
 		for (const row of this.database.prepare('SELECT note_id, data, checksum FROM note_updates ORDER BY note_id, revision').all()) {
 			if (!NOTE_ID.test(row.note_id) || createHash('sha256').update(row.data).digest('hex') !== row.checksum) {
 				throw new Error('Corrupted Yjs journal; refusing to load');
 			}
-			(noteUpdates[row.note_id] ??= []).push(row.data.toString('base64'));
+			(noteUpdates[row.note_id] ??= []).push(Buffer.from(row.data).toString('base64'));
 		}
+		this.database.exec('COMMIT');
 		return { ...record, noteUpdates };
+		} catch (error) { this.database.exec('ROLLBACK'); throw error; }
 	}
 	write({ expectedRevision, payload, journal = { updates: {}, replace: [], remove: [] } }) {
 		if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || typeof payload !== 'string' || Buffer.byteLength(payload) > MAX_BYTES) throw new Error('Invalid local save request');

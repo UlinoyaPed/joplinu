@@ -3,14 +3,14 @@ import * as Y from 'yjs';
 import { zipSync, strToU8 } from 'fflate';
 import { createVault, createNote, decodeDocument, encodeDocument, folderPath, moveFolder, newId, validateVault, sha256, toBase64 } from '../packages/library/src/model';
 import { LibraryController } from '../packages/library/src/controller';
-import type { StoredVault, VaultStorage } from '../packages/database/src/index';
+import type { StoredVault, VaultStorage, JournalWrite } from '../packages/database/src/index';
 import { createBackup, exportDirectory, importArchive, importDirectoryFiles, importMarkdownFiles, mergeBackup, readBackup, readMarkdownFile, rewriteLocalReferences, searchableNotes, unzipLimited } from '../packages/library/src/transfer';
 import { encryptBackup, decryptBackup } from '../packages/crypto/src/backup';
 
 class MemoryStorage implements VaultStorage {
 	kind = 'fault-injection'; record: StoredVault = { revision: 0, payload: null, noteUpdates: {} }; fail = false; delay = 0;
 	async read() { return structuredClone(this.record); }
-	async write(revision: number, payload: string, journal = { updates: {}, replace: [], remove: [] }) {
+	async write(revision: number, payload: string, journal: JournalWrite = { updates: {}, replace: [], remove: [] }) {
 		if (this.delay) await new Promise(resolve => setTimeout(resolve, this.delay));
 		if (this.fail) throw new Error('disk full');
 		if (revision !== this.record.revision) throw new Error('stale revision');

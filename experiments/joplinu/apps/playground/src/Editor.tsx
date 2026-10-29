@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { NoteDocument } from '../../../packages/document/src/index';
 import { MarkdownRenderer } from '../../../packages/markdown/src/index';
 import { createSourceEditor } from '../../../packages/editor/src/codemirror';
+import type { MarkdownCommand } from '../../../packages/editor/src/markdown-commands';
 import { createRichEditor, type MathEdit } from '../../../packages/editor/src/prosemirror';
 import type { Preferences, Mode } from '../../../packages/library/src/model';
 import { enhancePreview } from '../../../packages/markdown/src/enhance';
@@ -127,11 +128,16 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 		};
 		window.addEventListener('joplinu-focus-source', focus); return () => window.removeEventListener('joplinu-focus-source', focus);
 	}, [primary]);
+	useEffect(() => {
+		const focus = () => { if (primary.isComposing) return; if (richEditor.current) richEditor.current.view.focus(); else sourceEditor.current?.view.focus(); };
+		window.addEventListener('joplinu-focus-editor', focus); return () => window.removeEventListener('joplinu-focus-editor', focus);
+	}, [primary]);
 
 	useEffect(() => {
 		sourceEditor.current?.setSpellcheck(preferences.spellcheck);
+		sourceEditor.current?.setLanguage(preferences.language);
 		richEditor.current?.view.setProps({ attributes: { 'aria-label': '富文本编辑器', role: 'textbox', 'aria-multiline': 'true', spellcheck: String(preferences.spellcheck) } });
-	}, [preferences.spellcheck, mode]);
+	}, [preferences.spellcheck, preferences.language, mode]);
 	useEffect(() => { sourceEditor.current?.setResources({ features: preferences, assets, openNote: onOpenNote, openAttachment: onOpenAttachment }); }, [assets, preferences, mode]);
 	useEffect(() => {
 		if (preview.current && mode === 'split') {
@@ -145,6 +151,8 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 		setMode(next);
 	};
 	const commands = [['bold', '加粗'], ['italic', '斜体'], ['strike', '删除线'], ['heading', '标题'], ['paragraph', '正文'], ['list', '列表'], ['quote', '引用'], ['code', '代码块'], ['task', '插入任务'], ['table', '插入表格'], ['addRow', '增加行'], ['addColumn', '增加列'], ['deleteRow', '删除行'], ['deleteColumn', '删除列']] as const;
+	const sourceCommands: [MarkdownCommand, string][] = [['bold', '加粗'], ['italic', '斜体'], ['strike', '删除线'], ['inlineCode', '行内代码'], ['heading', '标题'], ['list', '列表'], ['quote', '引用'], ['code', '代码块'], ['task', '插入任务'], ['table', '插入表格'], ['link', '插入链接']];
+	const formatIcons: Record<string, string> = { bold: 'B', italic: 'I', strike: 'S̶', inlineCode: '`·`', heading: 'H1', paragraph: '¶', list: '☷', quote: '❝', code: '</>', task: '☑', table: '▦', link: '↗', addRow: '+行', addColumn: '+列', deleteRow: '−行', deleteColumn: '−列' };
 	const runRich = (name: typeof commands[number][0]) => {
 		const editor = richEditor.current;
 		if (editor) editor.command(editor[name]);
@@ -153,7 +161,8 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 	return <div className="note-editor" style={{ '--editor-font-size': `${preferences.fontSize}px`, '--editor-line-height': preferences.lineHeight, '--editor-font': preferences.font === 'mono' ? "'SFMono-Regular', Consolas, monospace" : "system-ui, sans-serif" } as React.CSSProperties} onContextMenu={event => { if (mode === 'rich' && !primary.isComposing) { event.preventDefault(); setContext({ x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 280) }); } }}>
 			<div className="modebar"><div role="tablist" aria-label="编辑模式">{modes.map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => switchMode(item.id)}>{item.label}</button>)}</div>{diagnostics && <button className={peer ? 'experiment active' : 'experiment'} onClick={() => setPeer(value => !value)}>◫ 双实例实验</button>}</div>
 			<div className="editor-toolbar"><span>{modes.find(item => item.id === mode)?.hint}</span><div><button aria-label="撤销" disabled={!primary.undo.undoStack.length} onClick={() => primary.undo.undo()}>↶</button><button aria-label="重做" disabled={!primary.undo.redoStack.length} onClick={() => primary.undo.redo()}>↷</button></div></div>
-			{mode === 'rich' && <div className="formatbar" aria-label="格式工具栏">{commands.map(([name, label]) => <button key={name} onMouseDown={event => event.preventDefault()} onClick={() => runRich(name)}>{label}</button>)}<button onMouseDown={event => event.preventDefault()} onClick={insertMath}>插入公式</button></div>}
+			{mode === 'rich' && <div className="formatbar" aria-label="格式工具栏">{commands.map(([name, label]) => <button key={name} aria-label={label} title={label} onMouseDown={event => event.preventDefault()} onClick={() => runRich(name)}>{formatIcons[name]}</button>)}<button aria-label="插入公式" title="插入公式" onMouseDown={event => event.preventDefault()} onClick={insertMath}>f(x)</button></div>}
+			{mode !== 'rich' && <div className="formatbar" aria-label="格式工具栏">{sourceCommands.map(([name, label]) => <button key={name} aria-label={label} onMouseDown={event => event.preventDefault()} onClick={() => sourceEditor.current?.format(name)} title={`${label}${name === 'bold' ? ' · Ctrl/Cmd+B' : name === 'italic' ? ' · Ctrl/Cmd+I' : name === 'link' ? ' · Ctrl/Cmd+K' : ''}`}>{formatIcons[name]}</button>)}<button aria-label="插入公式" title="插入公式" onMouseDown={event => event.preventDefault()} onClick={insertMath}>f(x)</button><button aria-label="查找替换" title="查找替换" onMouseDown={event => event.preventDefault()} onClick={() => sourceEditor.current?.search()}>⌕</button></div>}
 			{problem && <div role="alert" className="problem">{problem.message} {problem.draft && <button onClick={() => onRecovery(problem.draft)}>导出恢复草稿</button>}<button onClick={() => setProblem(undefined)}>关闭</button></div>}
 			<div className={peer ? 'editor-area with-peer' : 'editor-area'}>
 				<div className={mode === 'split' ? 'panes split' : 'panes'} style={{ '--source-ratio': `${ratio}%` } as React.CSSProperties}>

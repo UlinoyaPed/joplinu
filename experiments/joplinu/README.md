@@ -31,3 +31,5 @@ npm run build:apk
 - [架构设计与依赖边界](docs/architecture.md)
 - [分阶段计划和门槛](docs/implementation-plan.md)
 - [验证记录](docs/validation.md)
+
+- [完整产品目标、已实现能力与缺口](docs/product-scope.md)

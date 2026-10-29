@@ -2,6 +2,13 @@ import { useState } from 'react';
 import { descendants, dissolveFolder, folderPath, formatDate, moveFolder, newId, type Note, type Vault } from '../../../packages/library/src/model';
 import { Dialog } from './Dialog';
 
+export function TagManager({ vault, onClose, onRename, onRemove, run }: { vault: Vault; onClose(): void; onRename(from: string, to: string): void; onRemove(name: string): void; run(action: () => void): void }) {
+	const counts = new Map<string, number>(); for (const note of vault.notes) for (const tag of new Set(note.tags)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+	const names = [...counts.keys()].sort((a, b) => a.localeCompare(b, vault.preferences.language));
+	const [selected, setSelected] = useState<string>(); const [name, setName] = useState(''); const [confirm, setConfirm] = useState(false);
+	return <Dialog title="管理标签" onClose={onClose} wide><p className="hint">重命名会更新所有笔记（包括回收站）的标签；重名标签会合并。删除标签不会删除笔记或修改正文。</p><div className="history-layout"><div className="choice-list">{names.map(tag => <button key={tag} className={selected === tag ? 'selected' : ''} onClick={() => { setSelected(tag); setName(tag); setConfirm(false); }}>{tag}<small>{counts.get(tag)} 篇笔记</small></button>)}{!names.length && <p>在笔记“信息”中添加标签后，可在这里统一管理。</p>}</div>{selected && counts.has(selected) ? <section><form onSubmit={event => { event.preventDefault(); run(() => { onRename(selected, name); setSelected(name.trim()); setConfirm(false); }); }}><label className="setting-field">标签名称<input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label><div className="button-row"><button className="primary" type="submit" disabled={!name.trim()}>重命名标签</button><button className="danger" type="button" onClick={() => setConfirm(true)}>删除标签</button></div></form>{confirm && <div className="folder-removal"><p>将从 {counts.get(selected)} 篇笔记移除“{selected}”标签。笔记内容和历史保留。</p><button className="danger" onClick={() => run(() => { onRemove(selected); setSelected(undefined); setName(''); setConfirm(false); })}>确认删除标签</button></div>}</section> : <p>选择一个标签进行管理。</p>}</div></Dialog>;
+}
+
 export function FolderDialog({ vault, id, defaultParent, onClose, onSave, run }: { vault: Vault; id: string | undefined; defaultParent: string | null; onClose(): void; onSave(vault: Vault): void; run(action: () => void): void }) {
 	const existing = vault.folders.find(folder => folder.id === id);
 	const [name, setName] = useState(existing?.name ?? '');

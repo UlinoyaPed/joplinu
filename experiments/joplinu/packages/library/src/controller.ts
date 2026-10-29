@@ -89,8 +89,30 @@ export class LibraryController {
 		if (!original) throw new Error('笔记不存在或已在回收站中');
 		const document = this.document(id);
 		if (document.isComposing) throw new Error('请先结束中文输入');
-		const copy = { ...createNote(`${original.title.slice(0, 493)}（副本）`, original.folderId, document.source), tags: [...original.tags], location: original.location ? { ...original.location } : null };
+		const copy = { ...createNote(`${original.title.slice(0, 493)}（副本）`, original.folderId, document.source), kind: original.kind, tags: [...original.tags], location: original.location ? { ...original.location } : null };
 		this.change({ ...this.vault, notes: [...this.vault.notes, copy] }); return copy;
+	}
+	setKind(id: string, kind: Note['kind']) {
+		if (kind !== 'note' && kind !== 'todo') throw new Error('不支持的笔记类型');
+		this.editableNote(id); this.updateNote(id, { kind, completedAt: null, updatedAt: Date.now() });
+	}
+	toggleTodo(id: string) {
+		const note = this.editableNote(id); if (note.kind !== 'todo') throw new Error('这篇笔记不是待办');
+		this.updateNote(id, { completedAt: note.completedAt === null ? Date.now() : null, updatedAt: Date.now() });
+	}
+	togglePin(id: string) { const note = this.editableNote(id); this.updateNote(id, { pinned: !note.pinned }); }
+	renameTag(name: string, replacement: string) {
+		const next = replacement.trim();
+		if (!next || next.length > 100 || /[\r\n,，]/.test(next)) throw new Error('标签名称须为 1–100 个字符，且不包含逗号或换行');
+		if (!this.vault.notes.some(note => note.tags.includes(name))) throw new Error('标签不存在');
+		this.change({ ...this.vault, notes: this.vault.notes.map(note => note.tags.includes(name) ? { ...note, tags: [...new Set(note.tags.map(tag => tag === name ? next : tag))] } : note) });
+	}
+	removeTag(name: string) {
+		this.change({ ...this.vault, notes: this.vault.notes.map(note => note.tags.includes(name) ? { ...note, tags: note.tags.filter(tag => tag !== name) } : note) });
+	}
+	private editableNote(id: string): Note {
+		const note = this.vault.notes.find(note => note.id === id && !note.deletedAt);
+		if (!note) throw new Error('笔记不存在或已在回收站中'); return note;
 	}
 	moveNotes(ids: string[], folderId: string | null) {
 		const selected = this.requireNotes(ids);

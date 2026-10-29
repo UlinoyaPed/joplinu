@@ -144,7 +144,7 @@ export function openVaultStorage(): VaultStorage {
 	return {
 		kind: 'SQLite',
 		read: () => native.read(),
-		write: async (expectedRevision, payload, journal) => (await native.write({ expectedRevision, payload, journal })).revision,
+		write: async (expectedRevision, payload, journal) => (await native.write({ expectedRevision, payload, ...(journal ? { journal } : {}) })).revision,
 		check: async () => (await native.check()).result,
 	};
 }

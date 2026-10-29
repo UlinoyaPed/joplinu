@@ -22,3 +22,5 @@ GitHub Actions 的 **JoplinU RPM and APK** workflow 生成 RPM、debug APK、rel
 桌面与 Android 使用 SQLite，浏览器预览使用 IndexedDB。仅在事务提交后显示“已保存到本地”。支持 Markdown 文件夹 / ZIP 和完整备份，也可用密码加密备份。当前仍是开发版本，建议保留独立备份。OSS/S3 云同步、同步 E2EE、后台任务和 Android 中文输入法真机验收尚未完成。
 
 代码遵循仓库许可证；发行包包含依赖许可证与第三方 notices。
+
+- [完整产品目标、已实现能力与缺口](experiments/joplinu/docs/product-scope.md)
