@@ -33,7 +33,7 @@ app.whenReady().then(() => {
 	let database;
 	try {
 		mkdirSync(app.getPath('userData'), { recursive: true, mode: 0o700 });
-		database = new VaultDatabase(join(app.getPath('userData'), 'joplinu.sqlite'));
+		database = new VaultDatabase(join(app.getPath('userData'), 'joplinu-v2.sqlite'));
 	} catch { /* Open the recovery UI without replacing an unreadable database. */ }
 	const trusted = event => event.senderFrame && event.senderFrame === event.sender.mainFrame && event.senderFrame.url.startsWith('joplinu://app/');
 	for (const method of ['read', 'write', 'check']) ipcMain.handle(`joplinu:database:${method}`, (event, input) => {
