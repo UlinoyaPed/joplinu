@@ -239,6 +239,11 @@ textarea { font: inherit; color: var(--text); background: var(--surface-alt); bo
 .pin-indicator { color: var(--accent); }
 .current-todo { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
 .current-todo input { min-height: 18px; width: 18px; height: 18px; margin: 0 4px; accent-color: var(--accent); }
+.cloud-field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cloud-field-pair > label { min-width: 0; }
+.cloud-probe ul { padding: 0; list-style: none; }
+.cloud-probe li { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.cloud-probe small { flex-basis: 100%; color: var(--muted); }
 .formatbar { flex-shrink: 0; max-height: 100px; overflow: auto; }
 .formatbar button { min-width: 33px; min-height: 32px; padding: 4px 8px; font-size: 13px; }
 .formatbar button[aria-label=加粗] { font-weight: 700; }

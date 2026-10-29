@@ -2,7 +2,7 @@ module.exports = {
 	appId: 'org.joplinu.app',
 	productName: 'JoplinU',
 	directories: { app: 'apps/desktop', output: 'artifacts/desktop', buildResources: 'apps/desktop/resources' },
-	files: ['package.json', 'main.cjs', 'assets.cjs', 'preload.cjs', 'database.cjs'],
+	files: ['package.json', 'main.cjs', 'assets.cjs', 'preload.cjs', 'database.cjs', 'cloud.bundle.cjs'],
 	extraResources: [{ from: 'dist', to: 'web' }, { from: '../../LICENSE', to: 'LICENSE' }],
 	asar: true,
 	npmRebuild: false,

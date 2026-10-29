@@ -11,3 +11,4 @@ artifacts/
 *.asc
 *.signing.json
 public/THIRD_PARTY_NOTICES.txt
+apps/desktop/cloud.bundle.cjs

@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Menu, net, protocol, session, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, net, protocol, session, ipcMain, safeStorage } = require('electron');
 const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { resolveAsset } = require('./assets.cjs');
 const { VaultDatabase } = require('./database.cjs');
+const { CloudHost } = require('./cloud.bundle.cjs');
 const { mkdirSync } = require('node:fs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'joplinu', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
@@ -36,12 +37,17 @@ app.whenReady().then(() => {
 		database = new VaultDatabase(join(app.getPath('userData'), 'joplinu-v2.sqlite'));
 	} catch { /* Open the recovery UI without replacing an unreadable database. */ }
 	const trusted = event => event.senderFrame && event.senderFrame === event.sender.mainFrame && event.senderFrame.url.startsWith('joplinu://app/');
+	const cloud = new CloudHost(app.getPath('userData'), safeStorage, !app.isPackaged);
+	for (const method of ['info', 'configure', 'probe', 'request', 'clear']) ipcMain.handle(`joplinu:cloud:${method}`, async (event, input) => {
+		if (!trusted(event)) throw new Error('Untrusted cloud storage caller');
+		return cloud.invoke(method, input);
+	});
 	for (const method of ['read', 'write', 'check']) ipcMain.handle(`joplinu:database:${method}`, (event, input) => {
 		if (!trusted(event)) throw new Error('Untrusted local database caller');
 		if (!database) throw new Error('无法打开本地 SQLite；原数据未重置，请保留应用数据目录以便恢复。');
 		return database[method](input);
 	});
-	app.once('will-quit', () => database?.close());
+	app.once('will-quit', () => { database?.close(); cloud.close(); });
 	const root = app.isPackaged ? join(process.resourcesPath, 'web') : resolve(__dirname, '../../dist');
 	protocol.handle('joplinu', async request => {
 		const file = resolveAsset(root, request.url);
