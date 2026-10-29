@@ -44,3 +44,21 @@ test('SQLite rejects oversized and malformed bridge requests without changing th
 		assert.equal(database.read().revision, 0);
 	} finally { database.close(); }
 });
+
+
+test('SQLite v2 replays per-note journal records and retains only the compacted baseline', () => {
+	const database = new VaultDatabase(':memory:');
+	const one = Buffer.from([1, 2, 3]).toString('base64');
+	const two = Buffer.from([4, 5]).toString('base64');
+	try {
+		assert.equal(database.write({ expectedRevision: 0, payload: payload('first'), journal: { updates: { 'note-one': one }, replace: [], remove: [] } }).revision, 1);
+		assert.equal(database.write({ expectedRevision: 1, payload: payload('second'), journal: { updates: { 'note-one': two }, replace: [], remove: [] } }).revision, 2);
+		assert.deepEqual(database.read().noteUpdates['note-one'], [one, two]);
+		assert.equal(database.write({ expectedRevision: 2, payload: payload('compact'), journal: { updates: { 'note-one': two }, replace: ['note-one'], remove: [] } }).revision, 3);
+		assert.deepEqual(database.read().noteUpdates['note-one'], [two]);
+		assert.throws(() => database.write({ expectedRevision: 2, payload: payload('conflict'), journal: { updates: { 'note-one': one }, replace: [], remove: [] } }));
+		assert.deepEqual(database.read().noteUpdates['note-one'], [two]);
+		database.write({ expectedRevision: 3, payload: payload('deleted'), journal: { updates: {}, replace: [], remove: ['note-one'] } });
+		assert.equal(database.read().noteUpdates['note-one'], undefined);
+	} finally { database.close(); }
+});
