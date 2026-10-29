@@ -17,6 +17,8 @@ export type SyncStatus = 'locked' | 'ready' | 'syncing' | 'error' | 'synced';
 export class SyncEngine {
 	private key: CryptoKey | undefined;
 	private running = false;
+	private queuedVersion = -1;
+	private stateCache = new Map<string, { state: string; hash: string }>();
 	status: SyncStatus = 'locked';
 	error = '';
 	progress = '';
@@ -28,6 +30,7 @@ export class SyncEngine {
 	private emit() { this.version++; for (const listener of this.listeners) listener(); }
 	get unlocked() { return this.key !== undefined; }
 	get busy() { return this.running; }
+	get hasPendingLocal() { return this.key !== undefined && this.controller.contentVersion !== this.queuedVersion; }
 	private async exclusive<T>(action: () => Promise<T>): Promise<T> {
 		if (this.running) throw new Error('同步操作正在进行');
 		this.running = true; this.error = ''; this.emit();
@@ -115,28 +118,36 @@ export class SyncEngine {
 			}
 		} finally { for (const document of documents.values()) document.destroy(); }
 	}
-	private async prepare(provider: ObjectStorageProvider) {
+	private async prepare(provider?: ObjectStorageProvider) {
 		await this.controller.requireDurable();
+		const version = this.controller.contentVersion;
 		const state = this.controller.syncState!; const capture = this.controller.syncCapture();
 		const entries = [{ id: 'meta', state: capture.meta }, ...capture.notes.map(note => ({ id: `note:${note.id}`, state: note.state }))];
+		const present = new Set(entries.map(entry => entry.id)); for (const id of this.stateCache.keys()) if (!present.has(id)) this.stateCache.delete(id);
 		for (const entry of entries) {
+			const cached = this.stateCache.get(entry.id);
+			if (cached?.state === entry.state && this.controller.syncState!.hashes[entry.id] === cached.hash) continue;
+			const full = fromBase64(entry.state); const digest = await sha256(full); this.stateCache.set(entry.id, { state: entry.state, hash: digest });
+			if (this.controller.syncState!.hashes[entry.id] === digest) continue;
 			const document = new Y.Doc();
 			try {
-				Y.applyUpdate(document, fromBase64(entry.state));
+				Y.applyUpdate(document, full);
 				const current = this.controller.syncState!;
 				const before = current.vectors[entry.id] ? fromBase64(current.vectors[entry.id]!) : undefined;
 				const delta = Y.encodeStateAsUpdate(document, before);
 				// A deletion set can be repeated by Yjs; byte-identical state vectors
 				// alone cannot prove there are no new deletes. Track full-state hashes too.
-				const digest = await sha256(fromBase64(entry.state));
-				if (current.hashes[entry.id] === digest) continue;
 				const path = `${rootPath(state)}updates/${state.device}/${crypto.randomUUID()}.bin`;
 				const bytes = await encryptSyncObject(this.key!, path, encoder.encode(JSON.stringify({ format: 'JoplinU update', version: 1, target: entry.id, update: toBase64(delta) })));
 				const queued: QueuedObject = { path, ciphertext: toBase64(bytes), hash: await sha256(bytes) };
 				await this.controller.saveSyncState({ ...this.controller.syncState!, vectors: { ...this.controller.syncState!.vectors, [entry.id]: toBase64(Y.encodeStateVector(document)) }, hashes: { ...this.controller.syncState!.hashes, [entry.id]: digest }, outbox: [...this.controller.syncState!.outbox, queued] });
-				await this.upload(provider);
+				if (provider) await this.upload(provider);
 			} finally { document.destroy(); }
 		}
+		this.queuedVersion = version;
+	}
+	async queueLocal() {
+		await this.exclusive(async () => { if (!this.key || !this.controller.syncState) throw new Error('请先解锁同步密钥'); await this.prepare(); this.status = 'ready'; });
 	}
 	private async upload(provider: ObjectStorageProvider) {
 		while (this.controller.syncState!.outbox.length) {

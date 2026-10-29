@@ -3,6 +3,7 @@ package org.joplinu.app
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.Lifecycle
 import org.json.JSONObject
 import org.json.JSONTokener
 import org.junit.Assert.*
@@ -84,6 +85,20 @@ class NativeCloudTest {
                 awaitTrue(scenario, "Boolean(document.querySelector('.sync-settings')?.textContent.includes('同步库已连接，本轮同步完成'))")
                 val remote = call(scenario, "request", JSONObject().put("operation", "list").put("key", "vaults/")).getJSONObject("value").getJSONArray("objects")
                 assertTrue("No encrypted update uploaded", (0 until remote.length()).any { remote.getJSONObject(it).getString("key").contains("/updates/") })
+                evaluate(scenario, "document.querySelector('button[aria-label=\"关闭对话框\"]').click(); true")
+                evaluate(scenario, "(()=>{const input=document.querySelector('input[aria-label=\"笔记标题\"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'后台密文队列验证');input.dispatchEvent(new Event('input',{bubbles:true}));return true;})()")
+                evaluate(scenario, "window.__cipherQueued=false;(async()=>{for(let n=0;n<200;n++){const record=await window.Capacitor.Plugins.JoplinuDatabase.read();if(JSON.parse(record.payload).sync?.outbox.length){window.__cipherQueued=true;return;}await new Promise(resolve=>setTimeout(resolve,100));}})();true")
+                awaitTrue(scenario, "window.__cipherQueued === true")
+                assertTrue(call(scenario, "scheduleTransfer").getJSONObject("value").getBoolean("available"))
+                scenario.moveToState(Lifecycle.State.CREATED)
+                val backgroundState = context.getSharedPreferences("joplinu-encrypted-transfer", android.content.Context.MODE_PRIVATE)
+                val backgroundDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90)
+                while (backgroundState.getInt("objects", 0) == 0) { assertTrue("WorkManager ciphertext upload did not finish", System.nanoTime() < backgroundDeadline); Thread.sleep(200) }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                // A background transfer does not change the foreground revision
+                // or silently acknowledge the CRDT queue.
+                evaluate(scenario, "window.__cipherStillQueued=null;window.Capacitor.Plugins.JoplinuDatabase.read().then(record=>window.__cipherStillQueued=JSON.parse(record.payload).sync.outbox.length>0);true")
+                awaitTrue(scenario, "window.__cipherStillQueued === true")
                 scenario.recreate()
                 awaitTrue(scenario, "Boolean(document.querySelector('footer')?.textContent.includes('已保存到本地'))")
                 evaluate(scenario, "document.querySelector('button[aria-label=\"打开设置\"]').click(); true")

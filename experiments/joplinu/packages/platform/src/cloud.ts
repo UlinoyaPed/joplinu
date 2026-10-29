@@ -5,7 +5,8 @@ import type { ProbeResult } from '../../storage/src/diagnostics';
 
 export interface CloudConfig { kind: 's3' | 'oss'; endpoint: string; bucket: string; region: string; prefix: string; forcePathStyle: boolean; useCname: boolean }
 export interface CloudSetup { config: CloudConfig; credentials?: StorageCredentials; persist: boolean }
-export interface CloudInfo { supported: boolean; configured: boolean; secureStorage: boolean; persisted: boolean; config?: CloudConfig; error?: string }
+export interface BackgroundTransferInfo { supported: boolean; available: boolean; lastTransfer?: number; objects?: number; error?: string }
+export interface CloudInfo { supported: boolean; configured: boolean; secureStorage: boolean; persisted: boolean; config?: CloudConfig; error?: string; background?: BackgroundTransferInfo }
 export interface CloudFailure { kind: StorageErrorKind | 'secure-storage-unavailable' | 'not-configured' | 'operation-failed'; operation?: Operation; retryable?: boolean; status?: number }
 export type CloudResponse<T> = { ok: true; value: T } | { ok: false; error: CloudFailure };
 export interface CloudRequest { operation: Operation; key: string; cursor?: string; data?: string; expectedConfig?: CloudConfig; target?: string }
@@ -17,6 +18,7 @@ export interface NativeCloud {
 	clear(): Promise<CloudResponse<CloudInfo>>;
 	openTarget(setup: CloudSetup): Promise<CloudResponse<{ handle: string; config: CloudConfig }>>;
 	closeTarget(input: { handle: string }): Promise<CloudResponse<null>>;
+	scheduleTransfer?(): Promise<CloudResponse<BackgroundTransferInfo>>;
 }
 declare global { interface Window { joplinuCloud?: NativeCloud } }
 const androidCloud = registerPlugin<NativeCloud>('JoplinuCloud');

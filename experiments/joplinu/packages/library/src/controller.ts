@@ -10,6 +10,7 @@ export class LibraryController {
 	private documents = new Map<string, NoteDocument>();
 	private saving = false;
 	private generation = 0;
+	private contentGeneration = 0;
 	private savedGeneration = 0;
 	private revision = 0;
 	/** State vectors and full encoded states from the last durable transaction. */
@@ -83,6 +84,7 @@ export class LibraryController {
 		return document;
 	}
 	change(vault: Vault) {
+		if (vault.notes !== this.vault.notes || vault.folders !== this.vault.folders || vault.attachments !== this.vault.attachments) this.contentGeneration++;
 		if (this.replica && !this.applyingRemote) this.replica.update(this.vault, vault);
 		this.vault = vault;
 		this.generation++;
@@ -218,6 +220,7 @@ export class LibraryController {
 		this.change({ ...this.vault, logs: [{ at: Date.now(), level, message }, ...this.vault.logs].slice(0, 200) });
 	}
 	get hasUnsavedChanges() { return this.generation !== this.savedGeneration; }
+	get contentVersion() { return this.contentGeneration; }
 	dismissSyncRecovery() { this.syncRecoveryNote = ''; this.emit(); }
 	/** Creates a new metadata replica; joining merges rather than discarding this device's notes. */
 	async enableSync(manifest: SyncKeyManifest) {

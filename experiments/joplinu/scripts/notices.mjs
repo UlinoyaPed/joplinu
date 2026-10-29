@@ -16,5 +16,6 @@ for (const [folder, entry] of Object.entries(lock.packages)) {
 	sections.push(text);
 }
 sections.push(await readFile(join(root, 'apps/android/THIRD_PARTY_NOTICES.txt'), 'utf8'));
+sections.push(await readFile(join(root, 'apps/android/native/gradle/wrapper/LICENSE'), 'utf8'));
 await writeFile(join(root, 'public/THIRD_PARTY_NOTICES.txt'), sections.join('\n\n----------------------------------------\n\n') + '\n');
 console.log('Runtime third-party notices generated');

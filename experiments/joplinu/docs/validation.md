@@ -127,3 +127,7 @@ Android 35 模拟器已经实际执行应用 instrumentation：1 / 1，通过中
 CI [40821146974](https://github.com/UlinoyaPed/joplinu/actions/runs/40821146974) 的真实 S3、全部既有检查、RPM 和 APK 已全部通过，包含实际 Android React → Web Crypto → SQLite 队列 → 原生 S3 的创建同步库、加密上传和 Activity 重建后密钥锁定。模拟器仍不替代物理设备输入法验收。新增 Windows NSIS 构建 / Authenticode 状态记录及打包程序启动检查，本机仅完成 workflow 静态检查与既有打包检查，Windows 最终结果以该提交 CI 为准。
 
 完整密文迁移复用原有真实 S3 / SQLite 场景，逐个比较源 / 目标整个 vault 对象集合，验证已有不同内容不被覆盖及 vault 外对象保留。另在实际 Electron 设置中创建同步库和快照、迁移到新前缀、确认采用目标配置并清空凭据字段，随后从另一独立配置目录通过恢复码在目标存储恢复笔记，实际执行通过。Windows 首次实际 runner 构建发现 urllib 打包适配器仅匹配 Unix 路径，已改为匹配两种分隔符；最终 Windows 产物仍需新提交 CI 确认。
+
+CI [40823386377](https://github.com/UlinoyaPed/joplinu/actions/runs/40823386377) 的现有检查、真实 S3、RPM、Windows NSIS 和 APK 全部通过。Windows 运行了打包程序的真实隔离 / SQLite 重启与损坏资料保护流程；Android 增加的临时目标桥接也通过，真实 OSS 和物理设备仍未验收。
+
+离线加密入队 / WorkManager 批次，本地严格构建和现有核心 / 打包 / 开发及生产浏览器检查通过；同一真实 SQLite / S3 场景增加离线入队，之后继续验证并发纯删除恢复、快照、重启和迁移。Android 继续复用同一原生场景，后台阶段使用原生传输状态轮询而不靠后台 JS：实际 WorkManager 上传后，SQLite 队列仍应保留，再重建 Activity 检查密钥锁定。该新增原生阶段以新提交 CI 为准，尚未宣称通过。

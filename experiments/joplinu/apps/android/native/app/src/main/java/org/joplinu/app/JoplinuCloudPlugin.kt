@@ -29,7 +29,7 @@ import javax.crypto.spec.GCMParameterSpec
 @CapacitorPlugin(name = "JoplinuCloud")
 class JoplinuCloudPlugin : Plugin() {
     private val executor = ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(16))
-    companion object { @Volatile private var shared: AndroidCloudHost? = null }
+    companion object { @Volatile private var shared: AndroidCloudHost? = null; fun scheduleOnPause() { shared?.enqueueOnPause() } }
     private fun host(): AndroidCloudHost = synchronized(JoplinuCloudPlugin::class.java) { shared ?: AndroidCloudHost(context.applicationContext).also { shared = it } }
     private fun handle(method: String, call: PluginCall) {
         try { executor.execute { call.resolve(host().invoke(method, call.data)) } }
@@ -42,15 +42,18 @@ class JoplinuCloudPlugin : Plugin() {
     @PluginMethod fun clear(call: PluginCall) = handle("clear", call)
     @PluginMethod fun openTarget(call: PluginCall) = handle("openTarget", call)
     @PluginMethod fun closeTarget(call: PluginCall) = handle("closeTarget", call)
+    @PluginMethod fun scheduleTransfer(call: PluginCall) = handle("scheduleTransfer", call)
     override fun handleOnDestroy() { executor.shutdownNow(); super.handleOnDestroy() }
 }
 
-internal class AndroidCloudHost(context: Context) {
+internal class AndroidCloudHost(context: Context, private val autoSchedule: Boolean = true) {
     private data class Profile(val config: JSONObject, val credentials: JSONObject)
     private val file = AtomicFile(File(context.filesDir, "cloud-settings-v1.enc"))
+    private val application = context.applicationContext
     private val alias = "joplinu.cloud.credentials.v1"
     private val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     private var active: Profile? = null
+    private var activePersisted = false
     private var loaded = false
     private var error: String? = null
     private val targets = mutableMapOf<String, Profile>()
@@ -79,6 +82,8 @@ internal class AndroidCloudHost(context: Context) {
             val bytes = file.readFully(); require(bytes.size >= 30 && bytes[0] == 1.toByte())
             val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, key(false), GCMParameterSpec(128, bytes.copyOfRange(1, 13)))
             active = profile(JSONObject(cipher.doFinal(bytes.copyOfRange(13, bytes.size)).toString(Charsets.UTF_8)))
+            activePersisted = true
+            if (autoSchedule) EncryptedTransferWorker.schedule(application, active!!.config, true)
         } catch (_: Exception) { error = "无法解锁已保管的云配置，文件保持原样。可重新配置或清除云配置。" }
     }
     private fun profile(input: JSONObject): Profile {
@@ -107,16 +112,19 @@ internal class AndroidCloudHost(context: Context) {
         if (rawKeys.has("sessionToken")) { val token = rawKeys.getString("sessionToken"); if (token.isEmpty() || token.length > 16384 || token.any { it.code < 32 || it.code == 127 }) throw CloudFailure("invalid-config"); keys.put("sessionToken", token) }
         return Profile(config, keys)
     }
-    private fun info(): JSONObject = JSONObject().put("supported", true).put("configured", active != null).put("secureStorage", secure()).put("persisted", file.baseFile.exists()).apply { active?.let { put("config", it.config) }; error?.let { put("error", it) } }
+    private fun background() = EncryptedTransferWorker.info(application, active != null && activePersisted)
+    private fun info(): JSONObject = JSONObject().put("supported", true).put("configured", active != null).put("secureStorage", secure()).put("persisted", file.baseFile.exists()).put("background", background()).apply { active?.let { put("config", it.config) }; error?.let { put("error", it) } }
+    @Synchronized fun enqueueOnPause() { if (activePersisted) active?.let { EncryptedTransferWorker.schedule(application, it.config, false) } }
     @Synchronized fun invoke(method: String, input: JSONObject): JSObject {
         try {
             load()
             val result: Any = when (method) {
                 "info" -> info()
-                "configure" -> { if (input.opt("persist") !is Boolean) throw CloudFailure("invalid-config"); val next = profile(input); if (input.getBoolean("persist")) { if (!secure()) throw CloudFailure("secure-storage-unavailable"); encrypt(next) }; active = next; error = null; info() }
+                "configure" -> { if (input.opt("persist") !is Boolean) throw CloudFailure("invalid-config"); val next = profile(input); val persist = input.getBoolean("persist"); if (persist) { if (!secure()) throw CloudFailure("secure-storage-unavailable"); encrypt(next) }; active = next; activePersisted = persist; error = null; if (persist) EncryptedTransferWorker.schedule(application, next.config, true) else EncryptedTransferWorker.cancel(application); info() }
                 "openTarget" -> { if (targets.size >= 2 || input.optJSONObject("credentials") == null) throw CloudFailure("invalid-request"); val value = profile(input); val handle = java.util.UUID.randomUUID().toString(); targets[handle] = value; JSONObject().put("handle", handle).put("config", value.config) }
                 "closeTarget" -> { targets.remove(input.getString("handle")); JSONObject.NULL }
-                "clear" -> { file.delete(); active = null; targets.clear(); error = null; info() }
+                "scheduleTransfer" -> { enqueueOnPause(); background() }
+                "clear" -> { file.delete(); active = null; activePersisted = false; targets.clear(); error = null; EncryptedTransferWorker.cancel(application); info() }
                 "request" -> { val value = if (input.has("target")) targets[input.getString("target")] ?: throw CloudFailure("invalid-request") else active ?: throw CloudFailure("not-configured"); if (input.has("expectedConfig")) { val expected = input.optJSONObject("expectedConfig") ?: throw CloudFailure("invalid-request"); for (field in value.config.keys()) if (value.config.get(field) != expected.opt(field)) throw CloudFailure("conflict") }; CloudObjectClient(value.config, value.credentials).perform(input) }
                 "probe" -> { val value = active ?: throw CloudFailure("not-configured"); probe(CloudObjectClient(value.config, value.credentials)) }
                 else -> throw CloudFailure("unsupported")

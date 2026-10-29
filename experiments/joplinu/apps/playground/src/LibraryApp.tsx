@@ -14,6 +14,7 @@ import { Settings, type ExportKind, type ImportKind } from './Settings';
 import type { RootContent } from 'mdast';
 import { syncSession } from '../../../packages/sync/src/engine';
 import { configuredProvider } from './SyncSettings';
+import { cloudBridge, cloudValue } from '../../../packages/platform/src/cloud';
 
 type Modal = { kind: 'settings' | 'attachments' | 'link' | 'metadata' | 'history' | 'empty-trash' | 'outline' | 'tags' } | { kind: 'folder'; id?: string } | { kind: 'attachment'; id: string } | { kind: 'move'; ids: string[] } | { kind: 'note-menu'; id: string };
 const words = (node: RootContent): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => words(child as RootContent)).join('') : '';
@@ -22,6 +23,20 @@ const escapeLabel = (text: string) => text.replace(/[\\[\]]/g, '\\$&').replace(/
 export function LibraryApp({ controller }: { controller: LibraryController }) {
 	useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 	const sync = syncSession(controller); useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+	useEffect(() => {
+		let timer: ReturnType<typeof setTimeout> | undefined; let attempted = -1; let disposed = false;
+		const queue = () => {
+			if (disposed || !sync.unlocked || sync.busy || !sync.hasPendingLocal || attempted === controller.contentVersion) return;
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				if (disposed || sync.busy || !sync.unlocked) return;
+				attempted = controller.contentVersion;
+				void sync.queueLocal().then(async () => { const bridge = cloudBridge(); if (controller.syncState?.autoSync && controller.syncState.outbox.length && bridge?.scheduleTransfer) await cloudValue(bridge.scheduleTransfer()); }).catch(() => {});
+			}, 1000);
+		};
+		const offController = controller.subscribe(queue); const offSync = sync.subscribe(queue); queue();
+		return () => { disposed = true; clearTimeout(timer); offController(); offSync(); };
+	}, [controller, sync]);
 	useEffect(() => {
 		const tick = () => { if (!sync.unlocked || sync.busy || !controller.syncState?.autoSync || document.visibilityState !== 'visible' || !navigator.onLine) return; void configuredProvider().then(provider => sync.sync(provider)).catch(() => {}); };
 		const timer = setInterval(tick, 60000); window.addEventListener('online', tick);

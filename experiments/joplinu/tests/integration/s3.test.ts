@@ -135,6 +135,7 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 			reopened.controller.change({ ...reopened.controller.vault, notes: [...reopened.controller.vault.notes, conflict] }); await reopened.engine.sync(storage); await b.engine.sync(storage);
 			b.controller.change({ ...b.controller.vault, preferences: { ...b.controller.vault.preferences, history: false } });
 			b.controller.document(conflict.id).edit([{ from: 0, to: 1, insert: '' }]);
+			await b.engine.queueLocal(); expect(b.controller.syncState!.outbox.length).toBeGreaterThan(0);
 			reopened.controller.trashNotes([conflict.id], true); reopened.controller.change({ ...reopened.controller.vault, notes: reopened.controller.vault.notes.filter(note => note.id !== conflict.id) });
 			await reopened.engine.snapshot(storage); await b.engine.sync(storage);
 			expect(b.controller.document(conflict.id).source).toBe('留正文'); expect(b.controller.vault.notes.find(note => note.id === conflict.id)!.deletedAt).not.toBeNull();

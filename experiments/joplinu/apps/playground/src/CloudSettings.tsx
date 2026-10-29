@@ -3,6 +3,7 @@ import { cloudBridge, cloudValue, cloudErrorMessage, CloudError, HostStorageProv
 import type { ProbeResult } from '../../../packages/storage/src/diagnostics';
 import type { LibraryController } from '../../../packages/library/src/controller';
 import { syncSession } from '../../../packages/sync/src/engine';
+import { formatDate } from '../../../packages/library/src/model';
 
 const defaults: CloudConfig = { kind: 's3', endpoint: '', bucket: '', prefix: 'joplinu', region: 'us-east-1', forcePathStyle: true, useCname: false };
 const names = { list: '列举对象', put: '写入', head: '对象信息', get: '读取与校验', delete: '删除测试对象' };
@@ -67,6 +68,7 @@ export function CloudSettings({ controller, onLog }: { controller: LibraryContro
 			<div className="button-row"><button className="primary" type="submit" disabled={busy || engine.busy}>保存配置</button><button type="button" disabled={busy || engine.busy || !config.endpoint || !config.bucket} onClick={() => void configure(true)}>{busy ? '正在处理…' : '保存并测试连接'}</button><button type="button" disabled={busy || engine.busy || !info?.configured || !engine.unlocked || !controller.syncState} onClick={() => void migrate()}>迁移并切换</button><button type="button" className="danger" disabled={busy || engine.busy || !bridge} onClick={() => { if (!bridge) return; setBusy(true); setError(''); void cloudValue(bridge.clear()).then(value => { setInfo(value); setConfig(defaults); setAccess(''); setSecret(''); setToken(''); setProbe(undefined); setMessage('云配置已清除，远端对象保持不变。'); onLog('云存储配置已清除'); }).catch(problem => setError(cloudErrorMessage(problem))).finally(() => setBusy(false)); }}>清除云配置</button></div>
 		</form>
 		{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+		{info?.background?.supported && <div className="status-card"><strong>Android 系统后台密文传输</strong><p>{info.background.available ? '已启用系统任务，等待网络和系统调度。' : '需先将当前凭据保存在系统安全存储。临时凭据会话不会安排进程结束后的传输。'}</p><p className="hint">只上传本地持久化的加密队列，不在后台解密、合并或确认笔记。队列仍由下次前台同步校验；关闭自动同步可暂停后台上传。</p>{info.background.lastTransfer && <p>上次传输：{formatDate(info.background.lastTransfer, controller.vault.preferences)} · {info.background.objects ?? 0} 个对象</p>}{info.background.error && <p>后台传输尚未完成，请在前台重试同步或检查凭据。</p>}<button type="button" disabled={busy || engine.busy || !bridge} onClick={() => { if (bridge) void cloudValue(bridge.info()).then(setInfo).catch(problem => setError(cloudErrorMessage(problem))); }}>刷新后台状态</button></div>}
 		{probe && <div className="cloud-probe"><ul>{probe.steps.map((step, index) => <li key={index}><span>{names[step.operation]}</span><strong>{step.status === 'ok' ? '通过' : step.status === 'not-tested' ? '未执行' : '失败'}</strong>{step.error && <small>{cloudErrorMessage(new CloudError({ kind: step.error }))}</small>}</li>)}</ul>{probe.cleanup === 'failed' && <p className="hint">测试对象清理失败，请保留诊断结果。残留对象：{probe.leftoverKeys.join('、')}</p>}</div>}
 	</section>;
 }
