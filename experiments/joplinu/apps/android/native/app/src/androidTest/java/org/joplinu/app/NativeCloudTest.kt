@@ -56,6 +56,18 @@ class NativeCloudTest {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(45)
             while (evaluate(scenario, "Boolean(window.Capacitor?.Plugins?.JoplinuCloud)") != "true") { assertTrue("Cloud bridge did not load", System.nanoTime() < deadline); Thread.sleep(100) }
             try {
+                // Deterministic slash-containing envelope, compared with actual
+                // WebView JSON.stringify; cryptography and transport stay real.
+                val fixture = JSONObject().put("format", "JoplinU sync key").put("version", 1)
+                    .put("vault", "11111111-1111-4111-8111-111111111111").put("key", "22222222-2222-4222-8222-222222222222")
+                    .put("kdf", "PBKDF2-SHA256").put("iterations", 600000)
+                for ((field, size) in listOf("salt" to 16, "iv" to 12, "wrapped" to 48)) fixture.put(field, android.util.Base64.encodeToString(ByteArray(size) { 255.toByte() }, android.util.Base64.NO_WRAP))
+                val wire = SyncManifest.encode(fixture)
+                val javascript = JSONTokener(evaluate(scenario, "JSON.stringify($fixture)")).nextValue() as String
+                assertEquals(javascript, wire.toString(Charsets.UTF_8)); assertFalse(javascript.contains("\\/"))
+                assertTrue(SyncManifest.matches(fixture.toString().toByteArray(Charsets.UTF_8), fixture))
+                val changed = JSONObject(fixture.toString()).put("wrapped", android.util.Base64.encodeToString(ByteArray(48), android.util.Base64.NO_WRAP))
+                assertFalse(SyncManifest.matches(changed.toString().toByteArray(Charsets.UTF_8), fixture))
                 assertTrue(call(scenario, "configure", setup).getBoolean("ok"))
                 val report = call(scenario, "probe"); assertTrue("S3 connection checks failed: $report", report.getBoolean("ok") && report.getJSONObject("value").getBoolean("ok"))
                 val key = "原生/中文.bin"
@@ -117,7 +129,7 @@ class NativeCloudTest {
                     if (System.nanoTime() >= backgroundDeadline) {
                         val states = WorkManager.getInstance(context).getWorkInfosForUniqueWork("joplinu-encrypted-once").get(10, TimeUnit.SECONDS).map { "${it.state}/${it.runAttemptCount}" }
                         val connectivity = context.getSystemService(ConnectivityManager::class.java); val network = connectivity.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
-                        throw AssertionError("WorkManager upload timeout; error=${backgroundState.getString("error", "none")}; states=$states; internet=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}; validated=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}")
+                        throw AssertionError("WorkManager upload timeout; error=${backgroundState.getString("error", "none")}; operation=${backgroundState.getString("operation", "none")}; states=$states; internet=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}; validated=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}")
                     }
                     Thread.sleep(200)
                 }

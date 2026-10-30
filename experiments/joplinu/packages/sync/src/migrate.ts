@@ -1,5 +1,5 @@
 import { sha256 } from '../../core/src/bytes';
-import { decryptSyncObject } from '../../crypto/src/sync';
+import { decryptSyncObject, matchesSyncManifest } from '../../crypto/src/sync';
 import type { ObjectStorageProvider } from '../../storage/src/index';
 import { listAll } from '../../storage/src/diagnostics';
 import { rootPath, manifestPath, type SyncState } from './replica';
@@ -27,7 +27,7 @@ export async function migrateRepository(
 			if (copied.has(path)) continue;
 			const bytes = await source.getObject(path); const hash = await sha256(bytes);
 			if (state.known[path] && state.known[path] !== hash) throw new Error('源历史对象校验失败，未切换存储');
-			if (path === manifestPath(state.manifest) && hash !== await sha256(new TextEncoder().encode(JSON.stringify(state.manifest)))) throw new Error('源密钥元数据与当前同步库不符');
+			if (path === manifestPath(state.manifest) && !matchesSyncManifest(bytes, state.manifest)) throw new Error('源密钥元数据与当前同步库不符');
 			if (path.endsWith('.bin')) await decryptSyncObject(key, path, bytes);
 			if (await target.headObject(path) === null) await target.putObject(path, bytes);
 			if (await sha256(await target.getObject(path)) !== hash) throw new Error('目标存在不同内容或回读校验失败；未覆盖目标，未切换存储');

@@ -149,3 +149,11 @@ CI [40825283924](https://github.com/UlinoyaPed/joplinu/actions/runs/40825283924)
 快速切换批次复用既有内链流程，更新为可搜索选择器并验证 Ctrl/Cmd+P 打开目标笔记；没有新增一批独立测试。额外实际界面验证了标题检索、正文保留的内链插入、组合输入期间不跳转、空结果与手机布局。源码高亮阈值的真实编辑器检查确认跨界后 Y.Text / CodeMirror 一致、撤销恢复原文、组合输入中暂不切换解析器。
 
 CI [40993000772](https://github.com/UlinoyaPed/joplinu/actions/runs/40993000772) 已完成核心 / 浏览器、真实 S3、RPM / Windows 实际打包程序启动，以及 Android 编译 / lint / 临时签名验证和原生模拟器流程。暂停 WebView 计时器后的真实 WorkManager 传输、SQLite 队列保留、重建后密钥锁定、原生返回键关闭对话框并返回列表均通过。该证据不替代真实 OSS 和物理设备输入 / 节电行为验收。
+
+## Android 密钥封包 JSON 修复（2026-10-30）
+
+后续提交 CI [40994110737](https://github.com/UlinoyaPed/joplinu/actions/runs/40994110737) 的核心 / 真实 S3 / RPM / Windows 通过，但 Android Worker 报 `integrity`，而非网络或调度失败。检查 Android 官方 JSONStringer 实现确认 JSONObject 会转义 `/`；随机 Base64 密钥字段中是否包含该字符，决定旧字节比较是否错误失败。
+
+改用 Android JsonWriter 输出与 JS 一致的明确字段顺序；读取密钥封包时校验协议、KDF、各字段类型和值，允许 JSON 空白、键顺序与等价转义。不同包装密钥依然拒绝，更新 / 快照密文与整个迁移目标依然保持精确字节哈希校验；不会覆盖现有远端对象。这样也能读取先前后台可能写出的等价 JSON。
+
+复用原生场景增加固定含 `/` 的封包，与实际 WebView JSON.stringify 输出逐字节比较，并检查不同包装密钥被拒绝。真实 S3 既有场景验证等价 JSON 不被重写、改动密钥被拒绝，随后继续跑迁移、轮换与离线设备恢复，全部 10 项通过。Android 修复最终执行结果以本次提交的新 CI 为准。

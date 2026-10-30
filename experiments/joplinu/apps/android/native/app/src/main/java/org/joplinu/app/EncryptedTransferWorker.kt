@@ -95,9 +95,9 @@ class EncryptedTransferWorker(context: Context, parameters: WorkerParameters) : 
                 return response.get("value")
             }
             val manifestPath = root + "keys/$key.json"
-            val manifestBytes = manifest.toString().toByteArray(Charsets.UTF_8)
+            val manifestBytes = SyncManifest.encode(manifest)
             if (call("head", manifestPath) == JSONObject.NULL) call("put", manifestPath, Base64.encodeToString(manifestBytes, Base64.NO_WRAP))
-            if (digest(Base64.decode(call("get", manifestPath) as String, Base64.DEFAULT)) != digest(manifestBytes)) throw CloudFailure("integrity", "get")
+            if (!SyncManifest.matches(Base64.decode(call("get", manifestPath) as String, Base64.DEFAULT), manifest)) throw CloudFailure("integrity", "manifest")
             val scope = digest((current.toString() + root).toByteArray(Charsets.UTF_8))
             val previous = if (preferences.getString("scope", null) == scope) JSONObject(preferences.getString("completed", "{}") ?: "{}") else JSONObject()
             val completed = JSONObject(); val valid = mutableSetOf<String>()
@@ -116,12 +116,12 @@ class EncryptedTransferWorker(context: Context, parameters: WorkerParameters) : 
                 completed.put(path, hash); count++
                 // Separate transport checkpoint only. The immutable ciphertext
                 // remains in SQLite until the foreground validates/acknowledges.
-                check(preferences.edit().putString("scope", scope).putString("completed", completed.toString()).putLong("lastTransfer", System.currentTimeMillis()).putInt("objects", count).remove("error").commit())
+                check(preferences.edit().putString("scope", scope).putString("completed", completed.toString()).putLong("lastTransfer", System.currentTimeMillis()).putInt("objects", count).remove("error").remove("operation").commit())
             }
             return Result.success()
         } catch (problem: Exception) {
             val failure = if (problem is SQLiteDatabaseLockedException) CloudFailure("local-database-busy", retryable = true) else problem as? CloudFailure
-            preferences.edit().putString("error", failure?.kind ?: "operation-failed").commit()
+            preferences.edit().putString("error", failure?.kind ?: "operation-failed").putString("operation", failure?.operation ?: "unknown").commit()
             return if (failure?.retryable == true || failure?.kind in setOf("network", "timeout", "throttled")) Result.retry() else Result.failure()
         }
     }

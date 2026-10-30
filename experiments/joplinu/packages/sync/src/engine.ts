@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { fromBase64, toBase64, sha256 } from '../../core/src/bytes';
-import { createSyncKey, unlockSyncKey, encryptSyncObject, decryptSyncObject, validateManifest, type SyncKeyManifest } from '../../crypto/src/sync';
+import { createSyncKey, unlockSyncKey, encryptSyncObject, decryptSyncObject, validateManifest, matchesSyncManifest, type SyncKeyManifest } from '../../crypto/src/sync';
 import type { LibraryController } from '../../library/src/controller';
 import type { ObjectStorageProvider } from '../../storage/src/index';
 import { manifestPath, rootPath, MissingSyncDependencies, LocalEditingInProgress, type SyncUpdate, type QueuedObject } from './replica';
@@ -64,7 +64,7 @@ export class SyncEngine {
 		const content = encoder.encode(JSON.stringify(manifest));
 		if (await provider.headObject(path) === null) await provider.putObject(path, content);
 		const remote = await provider.getObject(path);
-		if (await sha256(remote) !== await sha256(content)) throw new Error('远端密钥元数据与本机不一致，已停止同步');
+		if (!matchesSyncManifest(remote, manifest)) throw new Error('远端密钥元数据与本机不一致，已停止同步');
 	}
 	private async listed(provider: ObjectStorageProvider) {
 		const prefix = rootPath(this.controller.syncState!) + 'updates/';

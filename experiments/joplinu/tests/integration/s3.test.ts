@@ -96,6 +96,13 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 		const password = 'integration-only-' + crypto.randomUUID(); const marker = '私密正文-SENTINEL-' + crypto.randomUUID();
 		try {
 			const a = await device('a', marker); await a.engine.create(password); await a.engine.sync(storage);
+			// Android JSONObject escapes base64 slashes. Formatting differences must
+			// not invalidate the same wrapped key, or require rewriting remote data.
+			const envelope = a.controller.syncState!.manifest; const envelopePath = `vaults/${envelope.vault}/keys/${envelope.key}.json`;
+			const alternate = new TextEncoder().encode(JSON.stringify(Object.fromEntries(Object.entries(envelope).reverse()), null, 2).replaceAll('/', '\\/'));
+			await storage.putObject(envelopePath, alternate); await a.engine.sync(storage); expect(await storage.getObject(envelopePath)).toEqual(alternate);
+			const different = { ...envelope, wrapped: Buffer.alloc(48).toString('base64') }; await storage.putObject(envelopePath, new TextEncoder().encode(JSON.stringify(different)));
+			await expect(a.engine.sync(storage)).rejects.toThrow(/密钥元数据/); await storage.putObject(envelopePath, alternate);
 			const noteId = a.controller.vault.notes[0]!.id;
 			const b = await device('b'); b.controller.change({ ...b.controller.vault, notes: [], folders: [] }); await b.controller.requireDurable();
 			await b.engine.join(storage, recoveryCode(a.controller.syncState!.manifest), password); await b.engine.sync(storage);

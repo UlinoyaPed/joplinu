@@ -1,5 +1,5 @@
 import { sha256 } from '../../core/src/bytes';
-import { decryptSyncObject, encryptSyncObject, type SyncKeyManifest } from '../../crypto/src/sync';
+import { decryptSyncObject, encryptSyncObject, matchesSyncManifest, type SyncKeyManifest } from '../../crypto/src/sync';
 import type { ObjectStorageProvider } from '../../storage/src/index';
 import { listAll } from '../../storage/src/diagnostics';
 import { rootPath, manifestPath, type SyncState } from './replica';
@@ -24,7 +24,7 @@ export async function rekeyRepository(
 		return objects;
 	};
 	const envelope = encoder.encode(JSON.stringify(manifest)); const envelopePath = manifestPath(manifest);
-	if (await provider.headObject(envelopePath) !== null && await sha256(await provider.getObject(envelopePath)) !== await sha256(envelope)) throw new Error('目标密钥元数据冲突，未覆盖');
+	if (await provider.headObject(envelopePath) !== null && !matchesSyncManifest(await provider.getObject(envelopePath), manifest)) throw new Error('目标密钥元数据冲突，未覆盖');
 	let objects = await scan();
 	if (!objects.has(manifestPath(state.manifest)) || Object.keys(state.known).some(path => !objects.has(path))) throw new Error('源仓库历史不完整，无法安全更换密钥');
 	const copy = async (oldPath: string, plaintext: Uint8Array, originalHash: string) => {
@@ -59,7 +59,7 @@ export async function rekeyRepository(
 			// Publish the new password-wrapped master key only after all history and
 			// rewritten snapshot references have been verified. No mutable head.
 			if (await provider.headObject(envelopePath) === null) await provider.putObject(envelopePath, envelope);
-			if (await sha256(await provider.getObject(envelopePath)) !== await sha256(envelope)) throw new Error('新密钥元数据校验失败');
+			if (!matchesSyncManifest(await provider.getObject(envelopePath), manifest)) throw new Error('新密钥元数据校验失败');
 			const visible = new Set<string>(); for await (const object of listAll(provider, destination)) { visible.add(object.key); if (visible.size > 200000) throw new Error('新密钥库对象超出当前限制'); }
 			if (!visible.has(envelopePath) || [...copied.values()].some(entry => !visible.has(entry.path))) throw new Error('新密钥库列表尚未完整可见，未切换，请重试');
 			return copied;

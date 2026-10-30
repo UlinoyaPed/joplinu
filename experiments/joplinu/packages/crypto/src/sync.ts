@@ -16,6 +16,13 @@ export function validateManifest(value: unknown): SyncKeyManifest {
 	return { format: v.format, version: 1, vault: v.vault, key: v.key, kdf: v.kdf, iterations, salt: v.salt, iv: v.iv, wrapped: v.wrapped };
 }
 const keyAad = (v: SyncKeyManifest) => text.encode(`JoplinU sync v1/key/${v.vault}/${v.key}`);
+/** JSON whitespace, key order and escaped slashes do not change the wrapped key.
+ * Ciphertext objects continue to require exact byte hashes everywhere. */
+export function matchesSyncManifest(bytes: Uint8Array, expected: SyncKeyManifest): boolean {
+	if (bytes.length > 4096) return false;
+	try { return JSON.stringify(validateManifest(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))) === JSON.stringify(validateManifest(expected)); }
+	catch { return false; }
+}
 async function wrapping(password: string, salt: Uint8Array) {
 	if (password.length < 12 || password.length > 1024) throw new Error('同步密码需要 12–1024 个字符');
 	const material = await crypto.subtle.importKey('raw', text.encode(password), 'PBKDF2', false, ['deriveKey']);
