@@ -145,3 +145,7 @@ CI [40825283924](https://github.com/UlinoyaPed/joplinu/actions/runs/40825283924)
 大文档采用两项实际优化：仅打开大纲时计算标题树；源码 / 双列超过 256000 个 UTF-16 字符时改用逐行轻量高亮，Live / 富文本和预览仍保留完整解析。SQLite 预置约 1.27 MB、10000 行笔记，实际 Electron 中连续 12 次单字符输入并等待 SQLite 保存，当前机器平均从约 189 ms 降到 64 ms。该小样本不是所有长文档 / 设备的性能保证，也不证明富文本或实时预览已达到相同指标。
 
 上个提交的 CI [40827661989](https://github.com/UlinoyaPed/joplinu/actions/runs/40827661989) 核心、真实 S3、RPM、Windows 通过，Android 编译后在后台传输场景等待超时；旧报告缺少 Worker 状态，尚不能据此确定单一根因。本批补充私网 / VPN 网络约束、加急调度回退及只读事务；测试暂停 WebView 计时器，再通过系统 JobScheduler 触发真实 Job，仍使用真实 S3 / Keystore / SQLite，并断言原密文队列保留。这样验证后台原生执行，不依赖 JS 或系统随机调度时机。新增安全错误 / Worker 状态诊断与 instrumentation 原始报告产物。本批 Android / 三平台最终结果以新提交 CI 为准；物理设备节电 / 进程终止与中文输入法、真实 OSS 仍未验收。
+
+快速切换批次复用既有内链流程，更新为可搜索选择器并验证 Ctrl/Cmd+P 打开目标笔记；没有新增一批独立测试。额外实际界面验证了标题检索、正文保留的内链插入、组合输入期间不跳转、空结果与手机布局。源码高亮阈值的真实编辑器检查确认跨界后 Y.Text / CodeMirror 一致、撤销恢复原文、组合输入中暂不切换解析器。
+
+CI [40993000772](https://github.com/UlinoyaPed/joplinu/actions/runs/40993000772) 已完成核心 / 浏览器、真实 S3、RPM / Windows 实际打包程序启动，以及 Android 编译 / lint / 临时签名验证和原生模拟器流程。暂停 WebView 计时器后的真实 WorkManager 传输、SQLite 队列保留、重建后密钥锁定、原生返回键关闭对话框并返回列表均通过。该证据不替代真实 OSS 和物理设备输入 / 节电行为验收。

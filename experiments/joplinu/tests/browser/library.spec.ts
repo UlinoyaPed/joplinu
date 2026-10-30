@@ -109,9 +109,10 @@ test('an async file import cannot switch away from a different note during compo
 
 test('note links navigate in both rendered and rich views', async ({ page }) => {
 	await open(page); await page.getByLabel('导入 Markdown', { exact: true }).setInputFiles([{ name: '起点.md', mimeType: 'text/markdown', buffer: Buffer.from('跳转：') }, { name: '终点.md', mimeType: 'text/markdown', buffer: Buffer.from('目标正文') }]);
-	await page.getByRole('button', { name: '内链', exact: true }).click(); await page.getByRole('dialog').getByRole('button', { name: /^终点/ }).click(); await page.getByRole('tab', { name: '富文本', exact: true }).click();
+	await page.getByRole('button', { name: '内链', exact: true }).click(); await page.getByRole('combobox', { name: '快速查找笔记' }).fill('终点'); await page.getByRole('combobox', { name: '快速查找笔记' }).press('Enter'); await page.getByRole('tab', { name: '富文本', exact: true }).click();
 	await page.getByRole('textbox', { name: '富文本编辑器' }).locator('a[data-note]').click(); await expect(page.getByLabel('笔记标题')).toHaveValue('终点');
 	await page.locator('.note-item').filter({ hasText: '起点' }).click(); await page.getByRole('tab', { name: '双列', exact: true }).click(); await page.getByLabel('Markdown 预览').locator('a[data-note]').click(); await expect(page.getByLabel('笔记标题')).toHaveValue('终点');
+	await page.keyboard.press('Control+p'); await page.getByRole('combobox', { name: '快速查找笔记' }).fill('起点'); await page.getByRole('combobox', { name: '快速查找笔记' }).press('Enter'); await expect(page.getByLabel('笔记标题')).toHaveValue('起点');
 });
 
 test('live block widgets render tables, formulas and code without changing original Markdown', async ({ page }) => {

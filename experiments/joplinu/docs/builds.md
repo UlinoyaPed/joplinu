@@ -1,6 +1,6 @@
 # 桌面 / APK 构建与签名
 
-构建入口是 `.github/workflows/joplinu-build.yml`，完成独立检查 workflow 与真实 S3 服务测试后并行构建 Electron Linux x64 RPM、Windows x64 NSIS 安装包和 Capacitor Android APK。不依赖旧 Joplin 构建工程。当前开发版包含本地笔记库及前台加密同步 / 恢复快照；真实 OSS、真机 IME、后台任务和大容量仍需分别验收。
+构建入口是 `.github/workflows/joplinu-build.yml`，完成独立检查 workflow 与真实 S3 服务测试后并行构建 Electron Linux x64 RPM、Windows x64 NSIS 安装包和 Capacitor Android APK。不依赖旧 Joplin 构建工程。当前开发版包含本地笔记库及前台加密同步 / 恢复快照；真实 OSS、真机 IME、物理设备节电 / 进程终止和大容量仍需分别验收。
 
 ## 自动构建
 

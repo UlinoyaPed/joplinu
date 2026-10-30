@@ -52,6 +52,6 @@ Android instrumentation 通过真正的 WebView / Capacitor / Kotlin 接口测�
 - 移除一层文件夹不递归删除内容；可能产生同名子目录，仍以独立 ID 区分。文件夹自身没有撤销记录，需要完整备份恢复原层级。
 - 日常界面移除双实例实验按钮，诊断页面使用 `/?diagnostics`。诊断副本只在主动启用后创建，普通编辑不再额外复制和传递整个 Y.Doc。它仍是本机实验，不是云同步。
 
-快捷键：Ctrl/Cmd+N 新笔记；Ctrl/Cmd+Shift+F 全文搜索；Ctrl/Cmd+Shift+L 切换笔记列表；Ctrl/Cmd+S 本地保存；Ctrl/Cmd+, 设置。组合输入与对话框期间拦截不适用的操作。
+快捷键：Ctrl/Cmd+P 快速切换；Ctrl/Cmd+N 新笔记；Ctrl/Cmd+Shift+F 全文搜索；Ctrl/Cmd+Shift+L 切换笔记列表；Ctrl/Cmd+S 本地保存；Ctrl/Cmd+, 设置。组合输入与对话框期间拦截不适用的操作。
 
 条件搜索、待办及新的产品方向见 [product-scope.md](product-scope.md)。标签管理包括回收站；删除标签不删除笔记。当前搜索仍为本地缓存扫描，并非 SQLite FTS。
