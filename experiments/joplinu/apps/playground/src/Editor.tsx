@@ -8,6 +8,8 @@ import { createRichEditor, type MathEdit } from '../../../packages/editor/src/pr
 import type { Preferences, Mode } from '../../../packages/library/src/model';
 import { enhancePreview } from '../../../packages/markdown/src/enhance';
 import { Dialog } from './Dialog';
+import { prepareWebLink } from '../../../packages/platform/src/navigation';
+import { LARGE_SOURCE_THRESHOLD } from '../../../packages/editor/src/large-source';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import 'prosemirror-view/style/prosemirror.css';
@@ -160,7 +162,7 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 	const insertMath = () => { if (primary.isComposing) return; const selection = primary.restoreSelection(); setMathEdit({ from: Math.min(selection.anchor, selection.head), to: Math.max(selection.anchor, selection.head), value: 'x^2', display: false, baseline: primary.source }); };
 	return <div className="note-editor" style={{ '--editor-font-size': `${preferences.fontSize}px`, '--editor-line-height': preferences.lineHeight, '--editor-font': preferences.font === 'mono' ? "'SFMono-Regular', Consolas, monospace" : "system-ui, sans-serif" } as React.CSSProperties} onContextMenu={event => { if (mode === 'rich' && !primary.isComposing) { event.preventDefault(); setContext({ x: Math.min(event.clientX, window.innerWidth - 210), y: Math.min(event.clientY, window.innerHeight - 280) }); } }}>
 			<div className="modebar"><div role="tablist" aria-label="编辑模式">{modes.map(item => <button key={item.id} role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => switchMode(item.id)}>{item.label}</button>)}</div>{diagnostics && <button className={peer ? 'experiment active' : 'experiment'} onClick={() => setPeer(value => !value)}>◫ 双实例实验</button>}</div>
-			<div className="editor-toolbar"><span>{modes.find(item => item.id === mode)?.hint}</span><div><button aria-label="撤销" disabled={!primary.undo.undoStack.length} onClick={() => primary.undo.undo()}>↶</button><button aria-label="重做" disabled={!primary.undo.redoStack.length} onClick={() => primary.undo.redo()}>↷</button></div></div>
+			<div className="editor-toolbar"><span>{(mode === 'source' || mode === 'split') && source.length > LARGE_SOURCE_THRESHOLD ? '大文档 · 轻量语法高亮' : modes.find(item => item.id === mode)?.hint}</span><div><button aria-label="撤销" disabled={!primary.undo.undoStack.length} onClick={() => primary.undo.undo()}>↶</button><button aria-label="重做" disabled={!primary.undo.redoStack.length} onClick={() => primary.undo.redo()}>↷</button></div></div>
 			{mode === 'rich' && <div className="formatbar" aria-label="格式工具栏">{commands.map(([name, label]) => <button key={name} aria-label={label} title={label} onMouseDown={event => event.preventDefault()} onClick={() => runRich(name)}>{formatIcons[name]}</button>)}<button aria-label="插入公式" title="插入公式" onMouseDown={event => event.preventDefault()} onClick={insertMath}>f(x)</button></div>}
 			{mode !== 'rich' && <div className="formatbar" aria-label="格式工具栏">{sourceCommands.map(([name, label]) => <button key={name} aria-label={label} onMouseDown={event => event.preventDefault()} onClick={() => sourceEditor.current?.format(name)} title={`${label}${name === 'bold' ? ' · Ctrl/Cmd+B' : name === 'italic' ? ' · Ctrl/Cmd+I' : name === 'link' ? ' · Ctrl/Cmd+K' : ''}`}>{formatIcons[name]}</button>)}<button aria-label="插入公式" title="插入公式" onMouseDown={event => event.preventDefault()} onClick={insertMath}>f(x)</button><button aria-label="查找替换" title="查找替换" onMouseDown={event => event.preventDefault()} onClick={() => sourceEditor.current?.search()}>⌕</button></div>}
 			{problem && <div role="alert" className="problem">{problem.message} {problem.draft && <button onClick={() => onRecovery(problem.draft)}>导出恢复草稿</button>}<button onClick={() => setProblem(undefined)}>关闭</button></div>}
@@ -175,6 +177,8 @@ export function Editor({ primary, preferences, assets, onOpenNote, onOpenAttachm
 							if (noteLink) { event.preventDefault(); onOpenNote(noteLink.dataset.note!); return; }
 							if (attachment && attachment.tagName === 'A') { event.preventDefault(); onOpenAttachment(attachment.dataset.attachment!); return; }
 							if (target.closest('audio,video')) return;
+							const anchor = target.closest<HTMLAnchorElement>('a');
+							if (anchor && prepareWebLink(anchor)) return;
 							const element = target.closest<HTMLElement>('[data-source]');
 							if ((event.target as HTMLElement).closest('a')) event.preventDefault();
 							if (element) sourceEditor.current?.focusSource(Number(element.dataset.source));

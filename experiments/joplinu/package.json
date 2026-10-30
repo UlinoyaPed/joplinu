@@ -1,7 +1,7 @@
 {
-	"name": "joplinu-prototype",
+	"name": "joplinu",
 	"private": true,
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"type": "module",
 	"license": "AGPL-3.0-or-later",
 	"workspaces": [
@@ -10,6 +10,7 @@
 	],
 	"scripts": {
 		"dev": "vite --host 0.0.0.0",
+		"predev": "node scripts/notices.mjs",
 		"build": "npm run typecheck && vite build",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
@@ -35,6 +36,7 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1156.0",
+		"@capacitor/app": "8.1.2",
 		"@capacitor/core": "8.5.3",
 		"@capacitor/filesystem": "8.1.5",
 		"@capacitor/share": "8.0.3",

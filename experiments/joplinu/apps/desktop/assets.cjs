@@ -12,4 +12,10 @@ function resolveAsset(root, requestUrl) {
 	return target;
 }
 
-module.exports = { resolveAsset };
+function externalWebUrl(value) {
+	if (typeof value !== 'string' || value.length > 8192 || /[\u0000-\u0020\u007f]/.test(value)) return null;
+	try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) && url.hostname && !url.username && !url.password ? url.href : null; }
+	catch { return null; }
+}
+
+module.exports = { resolveAsset, externalWebUrl };

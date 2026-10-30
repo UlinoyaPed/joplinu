@@ -1,6 +1,6 @@
 # JoplinU 架构决策与阶段边界
 
-状态：阶段 0 / 1 原型及本地笔记库开发版；尚未通过全部平台与同步发布门槛。优先级：不丢失数据 > 同步正确性 > 编辑体验 > 平台一致性 > 性能与外观。
+状态：0.2.0 开发版，已接入本地日志、前台加密同步、快照恢复、整库迁移与密钥轮换；尚未通过全部平台与同步发布门槛。优先级：不丢失数据 > 同步正确性 > 编辑体验 > 平台一致性 > 性能与外观。
 
 ## 仓库实查（2026-10-22）
 
@@ -28,7 +28,7 @@ flowchart TD
   Storage --> S3[独立 S3 Provider]
 ```
 
-当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。新增 packages/library、database、core 和独立 backup crypto；另有独立 storage 接口与 OSS / S3 Node 适配器，详见 [storage.md](storage.md)；尚未接入笔记同步。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
+当前实现包括 `apps/playground`、Electron `apps/desktop`、Capacitor/Kotlin `apps/android`，以及 `packages/document`、`packages/editor`、`packages/markdown` 和最小 `packages/platform` 导出适配。新增 packages/library、database、core、crypto、sync 与独立 storage 接口；Electron / Android 平台主机负责 OSS / S3 传输和安全凭据保管，前台加密同步核心仅依赖统一 Provider，详见 [storage.md](storage.md)。原型各目录尚使用相对 TS 入口；依赖在原型 workspace 根集中锁定，待边界稳定后拆成独立可发布包。
 
 业务核心不能依赖 Electron、Capacitor、DOM、SDK 或应用全局状态。编辑器可以依赖 DOM，Markdown 解析与 HTML 字符串生成不依赖浏览器。云 SDK 只能位于各自 Provider。跨进程调用使用逐项校验的白名单 IPC，禁止通用执行 / 任意文件路径代理。
 
@@ -60,7 +60,7 @@ CommonMark / GFM 的标题、列表、任务项、引用、标记、链接、代
 
 组合输入期间不卸载活动编辑器，远端入口 `applyRemote` 将更新暂存并在 compositionend 后应用。ProseMirror 使用异步结束回调，给 DOM observer 机会提交组合文本；CodeMirror 保留其原生 composition 处理。所有未来远端更新必须经过文档引擎入口，不能绕过此队列直接 applyUpdate。原型对同一文档的多个本地编辑器和应用切后台的组合输入取消尚需验证。
 
-Chromium 合成 composition 事件只能验证路由和单次写入，不能证明 Android WebView / Gboard / 搜狗 / 系统输入法正确。真机必须验证候选切换、长按、选区跨格式、旋转、软键盘和撤销。此门槛未通过前不启动完整同步实现。
+Chromium 合成 composition 事件只能验证路由和单次写入，不能证明 Android WebView / Gboard / 搜狗 / 系统输入法正确。真机必须验证候选切换、长按、选区跨格式、旋转、软键盘和撤销。用户随后要求继续完整软件实现，现有同步采用开发版边界：本地界面和正文的组合输入都会暂缓远端提交，显示“远端更新待处理”；真机输入法仍是正式发布验收项。
 
 ## ADR-004：渲染与资源安全
 
@@ -74,13 +74,13 @@ Shiki 使用 JavaScript regex engine 和按需语言 / 主题，避免为 WASM �
 
 ## ADR-005：本地持久化与平台壳
 
-为支持真实的目录、历史与设置流程，在完整同步门槛通过前先接入本地持久化。当前采用有界资料库聚合快照：权威 CRDT 状态、目录、元数据、设置、历史与附件在单个事务中提交，并以 revision CAS 拒绝过期窗口。串行写入完成后才更新“已保存”，写入期间产生的更改继续排队；失败保留内存与导出。读取失败不创建空库覆盖旧记录。此结构用于早期验证恢复，不冒充逐更新日志 / outbox。具体容量和恢复限制见 [local-library.md](local-library.md)。
+为支持真实的目录、历史与设置流程，在完整同步门槛通过前先接入本地持久化。当前 v2 使用逐笔记 Yjs 更新日志，目录、元数据、设置、历史、附件与密文 outbox 在同一 SQLite 事务中提交，并以 revision CAS 拒绝过期窗口。串行写入完成后才更新“已保存”，写入期间产生的更改继续排队；失败保留内存与导出。读取失败不创建空库覆盖旧记录。正文日志具有校验与有界压缩；元数据、历史、附件和密文队列目前仍有聚合容量上限。具体容量和恢复限制见 [local-library.md](local-library.md)。
 
 桌面使用主进程 node:sqlite 的 WAL / synchronous=FULL；renderer 只有带 frame / origin 校验的 read/write/check 白名单 IPC。Android 使用 Kotlin SQLite 事务和分片，避免 CursorWindow 的大行限制；浏览器预览用原子 IndexedDB，明确标示后端。SQLite 重开、进程强杀、拒绝过期写入和 Electron 实际重启已有自动测试；Android instrumentation 结果必须单独确认。
 
-历史是持久化的原文快照，区别于会话 UndoManager。备份保留当前 Yjs 状态以恢复后继续合并，并可另行密码加密；本地 SQLite 仍是明文。多窗口当前通过拒绝过期快照保护，不宣称自动协同。完整同步前要迁移至分文档 / 附件表、document_updates、原子 outbox / inbox、FTS 索引及统一窗口文档服务，迁移必须先备份并可回滚。
+历史是持久化的原文快照，区别于会话 UndoManager。备份保留当前 Yjs 状态以恢复后继续合并，并可另行密码加密；本地 SQLite 仍是明文。多窗口当前通过拒绝过期快照保护，不宣称自动协同。已建立逐文档日志与原子持久队列；后续仍需分离附件 / 历史、引入 FTS 索引及统一窗口文档服务，迁移必须先备份并可回滚。
 
-Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，限定 joplinu 协议的资源根目录并拒绝外部导航、新窗口与权限请求。Capacitor 共享 React 与文档核心，Kotlin 负责 SQLite；附件导出使用应用 cache 和受限 FileProvider。未来 Android WorkManager 只传输已加密且持久化的字节，合并需要前台文档引擎，不假设后台 JS 活跃。后台下载成功不等于已经合并。
+Electron 已开启 sandbox/contextIsolation，关闭 nodeIntegration，限定 joplinu 协议的资源根目录；外部 HTTP(S) 链接仅交给系统浏览器，拒绝应用内外部导航、任意新窗口与权限请求。Capacitor 共享 React 与文档核心，Kotlin 负责 SQLite；附件导出使用应用 cache 和受限 FileProvider。Android WorkManager 仅传输已加密且持久化的字节，不确认或删除前台队列；合并需要前台文档引擎，不假设后台 JS 活跃。后台下载成功不等于已经合并。
 
 ## ADR-006：OSS / S3 统一语义（阶段 3，独立适配器已实现）
 
@@ -88,23 +88,19 @@ Provider 必须有 put/get/list/head/delete；list 传递不透明游标并实�
 
 OSS 使用官方 ali-oss 或经验证 API，endpoint/bucket/prefix/STS 单独处理；S3 使用 AWS SDK v3、自定义 endpoint/region/path-style/SigV4/会话 token。二者不是同一个 Provider。设置界面记录类型、endpoint、region、bucket、prefix、临时凭据、path-style 和安全 TLS 选项，凭据只传给平台安全存储。连接测试在随机隔离前缀测试 put/head/list/get/delete，显示每项权限结果并清理自己创建的对象，不删除用户已有对象。禁止生产默认关闭证书验证。
 
-已实现统一接口、官方 OSS V4 与 S3 SigV4 适配器、分页 / 重试 / 诊断。实际 S3 服务使用 SeaweedFS 4.49，验证了权限、响应丢失、分页及持久化等九项；MinIO 官方分发当前不可访问，替代选择及哈希见 storage.md。真实 OSS、MinIO、R2 / AWS / Ceph / Wasabi 必须逐端点记录行为，不能用本地 OSS 协议 fixture 或厂商品牌声明代替实测。当前没有真实 OSS 凭据，未执行个人云端读写。设置 UI、平台密钥保管和 Android 请求桥仍待实现。独立传输验证不启动完整同步，不绕过 ADR-003 门槛。
+已实现统一接口、官方 OSS V4 与 S3 SigV4 适配器、分页 / 重试 / 诊断。实际 S3 服务使用 SeaweedFS 4.49，验证了权限、响应丢失、分页及持久化等九项；MinIO 官方分发当前不可访问，替代选择及哈希见 storage.md。真实 OSS、MinIO、R2 / AWS / Ceph / Wasabi 必须逐端点记录行为，不能用本地 OSS 协议 fixture 或厂商品牌声明代替实测。当前没有真实 OSS 凭据，未执行个人云端读写。设置 UI、平台密钥保管与 Android 请求桥均已接入；真实 S3 已验证前台同步，真实 OSS 仍待独立凭据环境验收。
 
-## ADR-007：不可变日志与 E2EE（阶段 4，未实现）
+## ADR-007：不可变日志与 E2EE（已实现，开发版）
 
-拟定对象路径 `vaults/<random-id>/{updates/<device-id>/<sequence>-<random-id>.bin,snapshots/<id>.bin,attachments/<id>.bin,metadata/<id>.bin}`。对象名不含标题或标签；仍泄露对象尺寸、时间和设备活动，这是威胁模型的限制。
+对象位于随机 vault 域下的 `keys/`、`updates/<device>/` 和 `snapshots/`。标题、标签、历史、组织信息与附件位于加密更新 / 快照内；对象名仍泄露尺寸、时间和设备活动。密文先进入 SQLite outbox 并持久化，然后上传；响应丢失重用相同路径和字节，下载校验并原子记录已处理集合。不会共同覆盖一个可变对象，也不依赖 CAS / 版本控制。
 
-上传对象由 SQLite 事务先记录随机 ID、唯一设备序号、原始更新和队列项，密文生成后再次持久化，然后上传。响应丢失时重传相同字节，下载端按对象 ID 和认证哈希去重。收到更新必须先验证边界、认证、设备身份和协议版本，再在单个 SQLite 事务内记录原始更新与已处理 ID；前台内存状态从已提交的日志推进，崩溃后重放。序号冲突不得覆盖，保留双方对象并报告完整性问题；缺页 / 丢对象保留待补齐状态。
+实际选用 Electron / Android 均可用的 Web Crypto：随机 256-bit 主密钥、HKDF-SHA256 按对象路径派生 AES-256-GCM 密钥、随机 96-bit nonce，完整路径与版本作为 AAD。主密钥由 PBKDF2-SHA256 600000 次派生的密码密钥包装。相较最初拟选 libsodium，可直接使用平台成熟密码实现，无额外 WASM / 原生密码库装载；代价是 PBKDF2 不具备 Argon2id 的内存难度。口令强度仍重要。封包 / 参数有界验证，密钥仅在当前前台会话解锁，不上传明文主密钥。
 
-拟选 libsodium 的 XChaCha20-Poly1305 和 Argon2id，须先验证 Electron / Android 的库加载、内存和速度；不手写密码算法。随机主密钥按 vault 和 key-version 派生用途密钥，密码派生密钥只包装主密钥；KDF 参数、salt、key id、协议版本有格式限制及认证，防止恶意内存消耗。每次新加密随机生成 192-bit nonce；对象身份、vault、key version、类型与长度作为 AAD，密文封包包含版本及认证信息。所有正文、元数据、附件、更新、历史都经过加密。
+恢复码保存 vault / key 身份，新设备通过恢复码与密码取得密钥。轮换将完整历史认证后重新加密到新随机 vault 域，快照覆盖关系与哈希同步改写，验证全部对象后发布新密钥清单；旧设备可带离线修改加入新域。旧域保留用于恢复，旧密钥仍能解密旧历史，不能将轮换宣称为远程撤销旧数据。
 
-仅共享 AEAD 密钥不能区分设备身份；拟使用独立 Ed25519 设备签名及受信加入流程，绑定 vault/device/sequence/object-id/hash。轮换创建新 key version 和受保护密钥清单；旧设备解锁、撤销和长期离线设备的追赶策略必须测试，不能只替换一个密码字段。新设备通过恢复口令或现有可信设备授权取得主密钥，不从云取得明文密钥。
+AEAD 证明对象由持有共享主密钥的一方生成；当前没有独立设备签名或逐设备撤销。已见对象哈希可发现缺失 / 内容变更，去重防止重复应用；全新设备面对完整旧副本不能独立检测全部回滚，必须保留独立备份 / 恢复锚点。OS 安全存储保护云凭据：Linux 拒绝 basic_text，Android 使用 Keystore。长期和 STS 凭据均不进入笔记、日志或安装包。
 
-桌面安全存储必须检查操作系统后端实际可用，不能接受 Linux basic_text 作为安全存储。Android 用 Keystore 包装秘密。长期个人凭据和受限 STS 均不进入 renderer、普通日志、笔记或 APK。生产发布前需要密码库审查与恢复演练。
-
-AEAD 检测篡改但不阻止服务端删除 / 回滚。设备维护已见签名序号 / 检查点，重复对象去重；老检查点触发告警而不是静默认可。新设备面对完整旧版本仍可能无法自行发现回滚，需要独立备份 / 用户保存的恢复锚点。
-
-快照包含状态向量、覆盖对象集合及认证摘要，导入时验证完整性并重放不被覆盖的更新。第一版不做远端历史清理。长期离线设备、已撤销设备、附件引用与 GC 安全证据成熟前不删除任何更新。迁移 Provider 复制全部密文、密钥元数据、快照和附件，流式校验清单；验证成功后才切换本地目标，源仓库保留，不冒充 Markdown 导出。
+快照索引最后上传作为完成标记，验证各密文分片及覆盖集合后恢复，再重放剩余日志。第一版不删除远端历史，也不做附件 GC。永久删除与长期离线编辑冲突时将未覆盖修改恢复到回收站并提示。迁移复制并验证全部密文对象，包括密钥元数据、日志、快照与附件，验证后切换配置，源仓库保留。
 
 ## ADR-008：Y.Text 验证失败时的替代方案
 

@@ -221,4 +221,5 @@ jobs:
           name: joplinu-android-lint
           path: |
             experiments/joplinu/apps/android/native/app/build/reports/
+            experiments/joplinu/apps/android/native/app/build/outputs/androidTest-results/connected/
             ${{ runner.temp }}/joplinu-android-cloud.log

@@ -2,6 +2,10 @@ package org.joplinu.app
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteDatabaseLockedException
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
 import android.util.Base64
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -10,6 +14,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -25,14 +30,19 @@ class EncryptedTransferWorker(context: Context, parameters: WorkerParameters) : 
         private const val PERIODIC = "joplinu-encrypted-periodic"
         private const val ONCE = "joplinu-encrypted-once"
         private const val PREFS = "joplinu-encrypted-transfer"
-        private fun constraints() = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+        // A private S3/OSS endpoint may be reachable on Wi-Fi/VPN even when
+        // Android cannot validate public Internet access against its probes.
+        private fun constraints() = Constraints.Builder().setRequiredNetworkRequest(NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), NetworkType.CONNECTED).build()
         fun schedule(context: Context, config: JSONObject, periodic: Boolean) {
             val data = Data.Builder().putString("config", config.toString()).build()
             val manager = WorkManager.getInstance(context)
             if (periodic) manager.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE,
                 PeriodicWorkRequestBuilder<EncryptedTransferWorker>(15, TimeUnit.MINUTES).setConstraints(constraints()).setInputData(data).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
-            else manager.enqueueUniqueWork(ONCE, ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<EncryptedTransferWorker>().setConstraints(constraints()).setInputData(data).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS).build())
+            else {
+                val request = OneTimeWorkRequestBuilder<EncryptedTransferWorker>().setConstraints(constraints()).setInputData(data).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                if (Build.VERSION.SDK_INT >= 31) request.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                manager.enqueueUniqueWork(ONCE, ExistingWorkPolicy.KEEP, request.build())
+            }
         }
         fun cancel(context: Context) { WorkManager.getInstance(context).apply { cancelUniqueWork(PERIODIC); cancelUniqueWork(ONCE) }; context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply() }
         fun info(context: Context, available: Boolean): JSONObject {
@@ -50,7 +60,7 @@ class EncryptedTransferWorker(context: Context, parameters: WorkerParameters) : 
         SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { database ->
             // A consistent read of metadata chunks; the worker never reads or
             // rewrites note journal BLOBs. The foreground remains the sole writer.
-            database.beginTransactionNonExclusive()
+            if (Build.VERSION.SDK_INT >= 35) database.beginTransactionReadOnly() else database.beginTransactionNonExclusive()
             try {
                 val text = StringBuilder()
                 database.rawQuery("SELECT ordinal,payload FROM chunks ORDER BY ordinal", null).use { cursor ->
@@ -110,7 +120,7 @@ class EncryptedTransferWorker(context: Context, parameters: WorkerParameters) : 
             }
             return Result.success()
         } catch (problem: Exception) {
-            val failure = problem as? CloudFailure
+            val failure = if (problem is SQLiteDatabaseLockedException) CloudFailure("local-database-busy", retryable = true) else problem as? CloudFailure
             preferences.edit().putString("error", failure?.kind ?: "operation-failed").commit()
             return if (failure?.retryable == true || failure?.kind in setOf("network", "timeout", "throttled")) Result.retry() else Result.failure()
         }

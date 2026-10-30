@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { NoteDocument, minimalEdit } from '../../document/src/index';
 import type { VaultStorage, JournalWrite } from '../../database/src/index';
 import { createVault, createNote, decodeDocument, encodeDocument, fromBase64, toBase64, sha256, newId, validateVault, type Vault, type Note } from './model';
-import { LibraryReplica, validateSyncState, MissingSyncDependencies, type SyncState, type SyncUpdate } from '../../sync/src/replica';
+import { LibraryReplica, validateSyncState, MissingSyncDependencies, LocalEditingInProgress, type SyncState, type SyncUpdate } from '../../sync/src/replica';
 import type { SyncKeyManifest } from '../../crypto/src/sync';
 
 export class LibraryController {
@@ -22,6 +22,7 @@ export class LibraryController {
 	private waiters: (() => void)[] = [];
 	private replica: LibraryReplica | undefined;
 	private applyingRemote = false;
+	private readonly uiComposition = new Set<object>();
 	syncState: SyncState | undefined;
 	syncRecoveryNote = '';
 	status: 'loading' | 'pending' | 'saving' | 'saved' | 'error' = 'loading';
@@ -221,6 +222,9 @@ export class LibraryController {
 	}
 	get hasUnsavedChanges() { return this.generation !== this.savedGeneration; }
 	get contentVersion() { return this.contentGeneration; }
+	get isComposing() { return this.uiComposition.size > 0 || [...this.documents.values()].some(document => document.isComposing); }
+	beginUIComposition(owner: object) { this.uiComposition.add(owner); }
+	endUIComposition(owner: object) { if (this.uiComposition.delete(owner)) this.emit(); }
 	dismissSyncRecovery() { this.syncRecoveryNote = ''; this.emit(); }
 	/** Creates a new metadata replica; joining merges rather than discarding this device's notes. */
 	async enableSync(manifest: SyncKeyManifest) {
@@ -239,7 +243,7 @@ export class LibraryController {
 	}
 	async applySyncUpdates(updates: SyncUpdate[], known: Record<string, string>) {
 		if (!this.syncState || !this.replica) throw new Error('同步库未连接');
-		if ([...this.documents.values()].some(document => document.isComposing)) throw new Error('请先结束输入法组合输入，再应用远端更新');
+		if (this.isComposing) throw new LocalEditingInProgress();
 		const generation = this.generation;
 		const candidate = new LibraryReplica(this.replica.encode());
 		const bodies = new Map<string, NoteDocument>();
@@ -255,7 +259,7 @@ export class LibraryController {
 			const recovered = [...candidate.recovered].filter(id => !this.vault.notes.some(note => note.id === id && note.deletedAt !== null));
 			if (recovered.length) vault.logs = [{ at: Date.now(), level: 'info' as const, message: `检测到删除后的离线编辑，${recovered.length} 篇笔记已保留到回收站` }, ...vault.logs].slice(0, 200);
 			for (const attachment of vault.attachments) if (!this.vault.attachments.some(old => old.id === attachment.id && old.data === attachment.data && old.sha256 === attachment.sha256) && await sha256(fromBase64(attachment.data)) !== attachment.sha256) throw new Error('远端附件校验失败，已停止合并');
-			if (generation !== this.generation || [...this.documents.values()].some(document => document.isComposing)) throw new Error('本地正在编辑，请稍后重试同步；修改均已保留');
+			if (generation !== this.generation || this.isComposing) throw new LocalEditingInProgress();
 			this.applyingRemote = true;
 			try {
 				for (const note of vault.notes) this.documents.get(note.id)?.applyRemote(fromBase64(note.state));
@@ -268,5 +272,5 @@ export class LibraryController {
 			await this.requireDurable();
 		} finally { if (candidate !== this.replica) candidate.destroy(); for (const body of bodies.values()) body.destroy(); }
 	}
-	dispose() { clearTimeout(this.timer); for (const document of this.documents.values()) document.destroy(); this.documents.clear(); this.replica?.destroy(); this.listeners.clear(); }
+	dispose() { clearTimeout(this.timer); for (const document of this.documents.values()) document.destroy(); this.documents.clear(); this.uiComposition.clear(); this.replica?.destroy(); this.listeners.clear(); }
 }

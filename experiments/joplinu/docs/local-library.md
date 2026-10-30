@@ -17,7 +17,7 @@
 | 笔记历史 | 自动保存前快照、手动快照、原文预览、恢复前安全快照；保留天数与每篇 1000 个版本上限 |
 | 工具 | 保存重试、SQLite quick_check、Yjs 解码与附件 SHA-256 检查、无正文 / 密码的操作日志、设置档案导入导出 |
 | 导入导出 | UTF-8 Markdown 多文件 / 目录 / ZIP，保留 BOM / CRLF；错误编码拒绝导入；通用目录中已引用的资源和相对 Markdown 链接转换为本地引用；完整备份包括目录、标签、历史、回收站、设置与 CRDT 状态 |
-| 同步 | 仅显示实际本地 / 云状态和独立加密备份入口；OSS/S3 增量同步、同步密钥和代理接入未实现，不提供虚假的“已同步”状态 |
+| 同步 | OSS / S3 设置及权限诊断、恢复码加入、前台加密增量同步、离线密文队列、Android 后台上传、完整性检查、快照恢复、全密文迁移与主密钥轮换；代理配置暂未提供 |
 | 插件 | 截图中划掉，暂不实现 |
 
 文件夹导出 ZIP 包含可直接读取的 `.md` 文件、资源文件及带校验的完整清单。JoplinU 读取清单可无损恢复历史等额外信息。普通 Markdown 文件中的 `attachment:` / `note:` 引用属于本应用格式，其他阅读器可能需要重写这些 URI，不能将 ZIP 说成通用阅读器完整兼容包。
@@ -30,9 +30,9 @@
 
 Electron 使用主进程 `node:sqlite`、WAL、synchronous=FULL 和受限 preload。IPC 只有 read / write / check，校验主 frame 与受信 origin，renderer 无任意 SQL、路径或 Node 权限。Android Kotlin 插件用 SQLite 事务，同时 CAS revision、替换分片；每片 128 Ki UTF-16 字符，避开代理对，规避 CursorWindow 大行限制。浏览器开发环境用原子 IndexedDB 事务，明确显示不同后端。
 
-当前已接入 v2 逐笔记 Yjs 更新日志，正文与元数据在同一事务提交；尚未实现同步 outbox。元数据（仍含附件与历史）上限 40 MiB、单附件 8 MiB、Markdown 单文件导入 2 MiB、目录输入 20 MiB、ZIP 解压总量 30 MiB。超限拒绝保存或导入并保留当前内容，不能宣称已支持大型资料库。逐文档日志已建立；进入完整同步前，仍需分离附件 / 历史、建立持久队列与索引。v2 使用独立数据目录，不自动迁移 v1，升级前应导出完整备份后恢复。旧 Joplin 数据库与目录不会被打开或迁移。
+当前已接入 v2 逐笔记 Yjs 更新日志，正文与元数据在同一事务提交；密文 outbox 和已处理更新集合与元数据原子保存。元数据（仍含附件与历史）上限 40 MiB、单附件 8 MiB、Markdown 单文件导入 2 MiB、目录输入 20 MiB、ZIP 解压总量 30 MiB。超限拒绝保存或导入并保留当前内容，不能宣称已支持大型资料库。逐文档日志已建立；扩大容量前仍需分离附件 / 历史并建立数据库搜索索引。v2 使用独立数据目录，不自动迁移 v1，升级前应导出完整备份后恢复。旧 Joplin 数据库与目录不会被打开或迁移。
 
-本地数据库是明文，不提供磁盘加密。备份可独立使用 Web Crypto：随机 256-bit 数据密钥、AES-256-GCM、随机 nonce、PBKDF2-SHA256 600000 次派生的密码包装密钥；封包版本和用途受认证，盐 / nonce / KDF 参数严格校验。密码只在当前操作中使用，不写入设置或日志。该实现不是云同步的 E2EE / 设备签名 / 回滚防护，忘记密码无法恢复。
+本地数据库是明文，不提供磁盘加密。备份可独立使用 Web Crypto：随机 256-bit 数据密钥、AES-256-GCM、随机 nonce、PBKDF2-SHA256 600000 次派生的密码包装密钥；封包版本和用途受认证，盐 / nonce / KDF 参数严格校验。密码只在当前操作中使用，不写入设置或日志。独立备份与同步使用不同密钥；同步 E2EE 另见 [架构 ADR-007](architecture.md#adr-007不可变日志与-e2ee已实现开发版)。当前不提供独立设备签名，忘记密码且没有其他已解锁设备时无法恢复。
 
 ## 测试与尚未通过的门槛
 
@@ -40,7 +40,7 @@ Electron 使用主进程 `node:sqlite`、WAL、synchronous=FULL 和受限 preloa
 
 Android instrumentation 通过真正的 WebView / Capacitor / Kotlin 接口测试超过 CursorWindow 大小的中文 / emoji 数据、CAS、错误拒绝与 Activity 重建。结果以该提交 CI 为准；没有运行通过前不能宣称 Android 测试成功。模拟器也不能替代 Gboard / 系统 / 搜狗等中文真机测试、进程终止、旋转、软键盘与后台行为。
 
-独立 Node OSS / S3 适配器及 SeaweedFS 真实 API 验证见 [storage.md](storage.md)，尚未接入笔记同步。仍需完成：真实 OSS 与其他 S3/MinIO 厂商兼容矩阵、同步 E2EE / 密钥轮换 / 新设备恢复、后台 WorkManager、自动多窗口协调、SQLite 逐更新日志、完全双语细节、外部资源授权、更多粘贴 / 嵌套 / 组合输入边界、1 MiB 文档性能及 Windows/macOS 验收。完整同步继续受文档模型门槛约束。
+独立 Node OSS / S3 适配器及 SeaweedFS 真实 API 验证见 [storage.md](storage.md)，已接入笔记同步。Linux RPM、Windows NSIS 与 Android APK 已有实际 CI 构建记录。仍需完成真实 OSS 与其他 S3 厂商兼容矩阵、物理设备输入法和节电 / 进程终止验证、自动多窗口协调、完全双语细节、外部图片授权及更大资料库优化；macOS 暂未提供安装包。每次改动的实际证据见 [validation.md](validation.md)。
 
 ## 原版布局增量（2026-10-24）
 

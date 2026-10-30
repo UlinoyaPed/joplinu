@@ -20,6 +20,8 @@ try {
 	await expect(window.getByLabel('Markdown 预览').locator('h1')).toContainText('JoplinU');
 	const isolation = await window.evaluate(() => ({ require: typeof globalThis.require, node: typeof globalThis.process }));
 	expect(isolation).toEqual({ require: 'undefined', node: 'undefined' });
+	const cloud = await window.evaluate(() => globalThis.joplinuCloud.info());
+	expect(cloud.ok).toBe(true); expect(cloud.value.supported).toBe(true);
 	const preferences = await application.evaluate(({ BrowserWindow }) => {
 		const { contextIsolation, sandbox, nodeIntegration, webSecurity } = BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences();
 		return { contextIsolation, sandbox, nodeIntegration, webSecurity };

@@ -15,6 +15,13 @@ import java.security.KeyStore
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import android.app.job.JobScheduler
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import androidx.work.WorkManager
+import android.database.sqlite.SQLiteDatabase
 
 /** One native connection scenario against a real ephemeral S3 service, not a mock API. */
 @RunWith(AndroidJUnit4::class)
@@ -90,22 +97,49 @@ class NativeCloudTest {
                 evaluate(scenario, "window.__cipherQueued=false;(async()=>{for(let n=0;n<200;n++){const record=await window.Capacitor.Plugins.JoplinuDatabase.read();if(JSON.parse(record.payload).sync?.outbox.length){window.__cipherQueued=true;return;}await new Promise(resolve=>setTimeout(resolve,100));}})();true")
                 awaitTrue(scenario, "window.__cipherQueued === true")
                 assertTrue(call(scenario, "scheduleTransfer").getJSONObject("value").getBoolean("available"))
+                scenario.onActivity { activity -> activity.bridge.webView.pauseTimers() }
                 scenario.moveToState(Lifecycle.State.CREATED)
                 val backgroundState = context.getSharedPreferences("joplinu-encrypted-transfer", android.content.Context.MODE_PRIVATE)
+                // Android may defer a background Job indefinitely. Trigger its
+                // real system JobService deterministically; do not mock Worker,
+                // network, SQLite or credentials and do not use background JS.
+                val defaultScheduler = context.getSystemService(JobScheduler::class.java)
+                val scheduler = if (Build.VERSION.SDK_INT >= 34) defaultScheduler.forNamespace("androidx.work.systemjobscheduler") else defaultScheduler
+                val scheduledDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (scheduler.allPendingJobs.isEmpty() && backgroundState.getInt("objects", 0) == 0 && System.nanoTime() < scheduledDeadline) Thread.sleep(100)
+                if (backgroundState.getInt("objects", 0) == 0) for (job in scheduler.allPendingJobs) {
+                    val namespace = if (Build.VERSION.SDK_INT >= 34) "-n androidx.work.systemjobscheduler " else ""
+                    val descriptor = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("cmd jobscheduler run -f ${namespace}${context.packageName} ${job.id}")
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
+                }
                 val backgroundDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(90)
-                while (backgroundState.getInt("objects", 0) == 0) { assertTrue("WorkManager ciphertext upload did not finish", System.nanoTime() < backgroundDeadline); Thread.sleep(200) }
-                scenario.moveToState(Lifecycle.State.RESUMED)
+                while (backgroundState.getInt("objects", 0) == 0) {
+                    if (System.nanoTime() >= backgroundDeadline) {
+                        val states = WorkManager.getInstance(context).getWorkInfosForUniqueWork("joplinu-encrypted-once").get(10, TimeUnit.SECONDS).map { "${it.state}/${it.runAttemptCount}" }
+                        val connectivity = context.getSystemService(ConnectivityManager::class.java); val network = connectivity.activeNetwork?.let { connectivity.getNetworkCapabilities(it) }
+                        throw AssertionError("WorkManager upload timeout; error=${backgroundState.getString("error", "none")}; states=$states; internet=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)}; validated=${network?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}")
+                    }
+                    Thread.sleep(200)
+                }
                 // A background transfer does not change the foreground revision
                 // or silently acknowledge the CRDT queue.
-                evaluate(scenario, "window.__cipherStillQueued=null;window.Capacitor.Plugins.JoplinuDatabase.read().then(record=>window.__cipherStillQueued=JSON.parse(record.payload).sync.outbox.length>0);true")
-                awaitTrue(scenario, "window.__cipherStillQueued === true")
+                SQLiteDatabase.openDatabase(context.getDatabasePath("joplinu-v2.sqlite").path, null, SQLiteDatabase.OPEN_READONLY).use { database ->
+                    val payload = StringBuilder(); database.rawQuery("SELECT payload FROM chunks ORDER BY ordinal", null).use { cursor -> while (cursor.moveToNext()) payload.append(cursor.getString(0)) }
+                    assertTrue("Background upload acknowledged the foreground queue", JSONObject(payload.toString()).getJSONObject("sync").getJSONArray("outbox").length() > 0)
+                }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                scenario.onActivity { activity -> activity.bridge.webView.resumeTimers() }
                 scenario.recreate()
                 awaitTrue(scenario, "Boolean(document.querySelector('footer')?.textContent.includes('已保存到本地'))")
                 evaluate(scenario, "document.querySelector('button[aria-label=\"打开设置\"]').click(); true")
                 awaitTrue(scenario, "Boolean(document.querySelector('.settings-nav'))")
                 evaluate(scenario, "[...document.querySelectorAll('.settings-nav button')].find(button=>button.textContent.includes('同步')).click(); true")
                 awaitTrue(scenario, "Boolean(document.querySelector('.sync-settings')?.textContent.includes('解锁同步密码'))")
-            } finally { call(scenario, "clear") }
+                scenario.onActivity { activity -> activity.onBackPressedDispatcher.onBackPressed() }
+                awaitTrue(scenario, "!document.querySelector('dialog[open]')")
+                scenario.onActivity { activity -> activity.onBackPressedDispatcher.onBackPressed() }
+                awaitTrue(scenario, "Boolean(document.querySelector('.library-shell')?.classList.contains('mobile-notes'))")
+            } finally { scenario.onActivity { activity -> activity.bridge.webView.resumeTimers() }; call(scenario, "clear") }
         }
     }
 }

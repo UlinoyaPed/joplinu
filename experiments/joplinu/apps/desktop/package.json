@@ -1,7 +1,7 @@
 {
 	"name": "joplinu-desktop",
 	"productName": "JoplinU",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"private": true,
 	"description": "JoplinU offline Markdown notes with encrypted synchronization",
 	"main": "main.cjs",

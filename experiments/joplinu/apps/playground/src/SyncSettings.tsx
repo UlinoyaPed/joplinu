@@ -50,7 +50,7 @@ export function SyncSettings({ controller }: { controller: LibraryController }) 
 				<button disabled={engine.busy} type="submit">{keyAction === 'rotate' ? '重加密并更换主密钥' : '保留本机编辑并加入新密钥库'}</button>
 			</form></details>}
 		</>}
-		{engine.progress && <p role="status">{engine.progress}</p>}{(error || engine.error) && <p role="alert">{error || engine.error}</p>}{message && <p role="status">{message}</p>}{controller.syncRecoveryNote && <p role="status">{controller.syncRecoveryNote}</p>}
+		{engine.progress && <p role="status">{engine.progress}</p>}{engine.pendingRemoteCount > 0 && <p role="status">远端待应用更新：{engine.pendingRemoteCount}</p>}{(error || engine.error) && <p role={engine.status === 'waiting' ? 'status' : 'alert'}>{error || engine.error}</p>}{message && <p role="status">{message}</p>}{controller.syncRecoveryNote && <p role="status">{controller.syncRecoveryNote}</p>}
 		<p className="hint">恢复快照可加快新设备初始化，全部云端更新继续保留。锁定只移除会话密钥，已加密队列仍可后台传输；关闭自动同步可暂停上传。云端仍可删除或回滚数据，请定期保留独立加密备份。</p>
 	</section>;
 }

@@ -102,7 +102,10 @@ describe('real SeaweedFS S3 API with AWS SDK v3', () => {
 			expect(b.controller.document(noteId).source).toBe(marker);
 			a.controller.document(noteId).edit([{ from: 2, to: 2, insert: '甲' }]); b.controller.document(noteId).edit([{ from: 2, to: 2, insert: '乙' }]);
 			a.controller.updateNote(noteId, { title: '离线改名' }); b.controller.updateNote(noteId, { pinned: true, tags: ['离线标签'] });
-			await a.engine.sync(storage); await b.engine.sync(storage); await a.engine.sync(storage);
+			await a.engine.sync(storage);
+			const composing = {}; b.controller.beginUIComposition(composing);
+			await expect(b.engine.sync(storage)).rejects.toThrow(/输入|编辑/); expect(b.engine.status).toBe('waiting'); expect(b.engine.pendingRemoteCount).toBeGreaterThan(0); expect(b.controller.document(noteId).source).not.toContain('甲');
+			b.controller.endUIComposition(composing); await b.engine.sync(storage); await a.engine.sync(storage);
 			const merged = a.controller.document(noteId).source; expect(merged).toContain('甲'); expect(merged).toContain('乙'); expect(b.controller.document(noteId).source).toBe(merged);
 			expect(a.controller.vault.notes[0]).toMatchObject({ title: '离线改名', pinned: true, tags: ['离线标签'] });
 			for await (const object of listAll(storage, `vaults/${a.controller.syncState!.manifest.vault}/updates/`)) expect(Buffer.from(await storage.getObject(object.key)).includes(Buffer.from(marker))).toBe(false);

@@ -20,7 +20,7 @@ export class CloudHost {
 	private changing = false;
 	private targets = new Map<string, { profile: Profile; provider: ObjectStorageProvider }>();
 	constructor(private readonly directory: string, private readonly secure: SecureStorage, private readonly allowLoopbackHTTP = false) { this.path = join(directory, 'cloud-settings-v1.enc'); }
-	private available() { return this.secure.isEncryptionAvailable() && this.secure.getSelectedStorageBackend?.() !== 'basic_text'; }
+	private available() { return this.secure.isEncryptionAvailable() && (process.platform !== 'linux' || this.secure.getSelectedStorageBackend?.() !== 'basic_text'); }
 	private async profile(value: unknown, previous?: Profile): Promise<Profile> {
 		if (!value || typeof value !== 'object') throw new HostError('invalid-config');
 		const setup = value as CloudSetup; const raw = setup.config;

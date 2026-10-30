@@ -1,4 +1,4 @@
-import { EditorState, Compartment, Prec } from '@codemirror/state';
+import { EditorState, Compartment, Prec, Facet } from '@codemirror/state';
 import { EditorView, keymap, Decoration, ViewPlugin, type DecorationSet } from '@codemirror/view';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
@@ -10,6 +10,9 @@ import type { NoteDocument } from '../../document/src/index';
 import { liveBlockField, refreshLiveBlocks, type LiveResources } from './live-blocks';
 import { markdownCommand, type MarkdownCommand } from './markdown-commands';
 import { openSearchPanel } from '@codemirror/search';
+import { largeSourceLanguage, LARGE_SOURCE_THRESHOLD } from './large-source';
+
+const lightweightSource = Facet.define<boolean, boolean>({ combine: values => values[0] ?? false });
 
 function decorate(view: EditorView) {
 	const ranges: { from: number; to: number; decoration: Decoration }[] = [];
@@ -48,6 +51,9 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 	const mode = new Compartment();
 	const attributes = new Compartment();
 	const language = new Compartment();
+	const syntax = new Compartment();
+	let liveEnabled = live;
+	const syntaxFor = (lightweight: boolean) => [lightweightSource.of(lightweight), lightweight ? largeSourceLanguage : markdown({ extensions: [GFM] })];
 	const owner = {};
 	const selection = note.restoreSelection();
 	const format = (editor: EditorView, command: MarkdownCommand) => {
@@ -65,7 +71,12 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 				// Keep CR as a character so CodeMirror offsets match raw Y.Text, including CRLF imports.
 				EditorState.lineSeparator.of('\n'),
 				language.of(EditorState.phrases.of(chineseSearch)),
-				markdown({ extensions: [GFM] }),
+				syntax.of(syntaxFor(!live && note.source.length > LARGE_SOURCE_THRESHOLD)),
+				EditorState.transactionExtender.of(transaction => {
+					if (!transaction.docChanged || note.isComposing) return null;
+					const lightweight = !liveEnabled && transaction.newDoc.length > LARGE_SOURCE_THRESHOLD;
+					return lightweight === transaction.startState.facet(lightweightSource) ? null : { effects: syntax.reconfigure(syntaxFor(lightweight)) };
+				}),
 				syntaxHighlighting(defaultHighlightStyle), bracketMatching(), indentOnInput(), highlightSelectionMatches(),
 				yCollab(note.text, undefined, { undoManager: note.undo }),
 				Prec.highest(keymap.of([...yUndoManagerKeymap, ...([['Mod-b', 'bold'], ['Mod-i', 'italic'], ['Mod-Shift-x', 'strike'], ['Mod-k', 'link']] as const).map(([key, command]) => ({ key, run: (editor: EditorView) => { format(editor, command); return true; } }))])), keymap.of([...defaultKeymap, ...searchKeymap, indentWithTab]),
@@ -77,7 +88,7 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 				}),
 				EditorView.domEventHandlers({
 					compositionstart() { note.beginComposition(owner); },
-					compositionend() { queueMicrotask(() => note.endComposition(owner)); },
+					compositionend() { queueMicrotask(() => { note.endComposition(owner); const lightweight = !liveEnabled && view.state.doc.length > LARGE_SOURCE_THRESHOLD; if (view.dom.isConnected && lightweight !== view.state.facet(lightweightSource)) view.dispatch({ effects: syntax.reconfigure(syntaxFor(lightweight)) }); }); },
 					scroll(_event, editor) {
 						const block = editor.lineBlockAtHeight(editor.scrollDOM.scrollTop);
 						onPosition?.(block.from);
@@ -91,7 +102,7 @@ export function createSourceEditor(parent: HTMLElement, note: NoteDocument, live
 		format(command: MarkdownCommand) { return format(view, command); },
 		search() { if (note.isComposing) return false; return openSearchPanel(view); },
 		setLanguage(value: 'zh-CN' | 'en-US') { view.dispatch({ effects: language.reconfigure(EditorState.phrases.of(value === 'zh-CN' ? chineseSearch : {})) }); },
-		setLive(value: boolean) { view.dispatch({ effects: mode.reconfigure(value ? [livePreview, blocks] : []) }); },
+		setLive(value: boolean) { liveEnabled = value; view.dispatch({ effects: [mode.reconfigure(value ? [livePreview, blocks] : []), syntax.reconfigure(syntaxFor(!value && view.state.doc.length > LARGE_SOURCE_THRESHOLD))] }); },
 		setResources(value: LiveResources) { resources = value; resourceVersion++; view.dispatch({ effects: refreshLiveBlocks.of() }); },
 		setSpellcheck(value: boolean) { view.dispatch({ effects: attributes.reconfigure(EditorView.contentAttributes.of({ 'aria-label': 'Markdown 源码', spellcheck: String(value), autocapitalize: 'off' })) }); },
 		focusSource(offset: number) {

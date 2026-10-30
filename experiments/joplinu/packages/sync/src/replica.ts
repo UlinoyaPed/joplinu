@@ -12,6 +12,7 @@ export interface SyncState {
 }
 export interface SyncUpdate { target: string; update: string }
 export class MissingSyncDependencies extends Error { constructor() { super('远端更新依赖尚未到齐，正在等待完整历史'); this.name = 'MissingSyncDependencies'; } }
+export class LocalEditingInProgress extends Error { constructor() { super('本地输入或编辑尚未结束，远端更新等待下次应用'); this.name = 'LocalEditingInProgress'; } }
 const id = /^[a-zA-Z0-9-]{1,100}$/;
 export const isSyncTarget = (value: string) => /^(?:meta|note:[a-zA-Z0-9-]{1,100})$/.test(value);
 export const rootPath = (state: SyncState) => `vaults/${state.manifest.vault}/`;

@@ -15,6 +15,7 @@ import type { RootContent } from 'mdast';
 import { syncSession } from '../../../packages/sync/src/engine';
 import { configuredProvider } from './SyncSettings';
 import { cloudBridge, cloudValue } from '../../../packages/platform/src/cloud';
+import { installAndroidBackHandler, minimizeAndroidApp } from '../../../packages/platform/src/lifecycle';
 
 type Modal = { kind: 'settings' | 'attachments' | 'link' | 'metadata' | 'history' | 'empty-trash' | 'outline' | 'tags' } | { kind: 'folder'; id?: string } | { kind: 'attachment'; id: string } | { kind: 'move'; ids: string[] } | { kind: 'note-menu'; id: string };
 const words = (node: RootContent): string => 'value' in node ? String(node.value) : 'children' in node ? node.children.map(child => words(child as RootContent)).join('') : '';
@@ -23,15 +24,28 @@ const escapeLabel = (text: string) => text.replace(/[\\[\]]/g, '\\$&').replace(/
 export function LibraryApp({ controller }: { controller: LibraryController }) {
 	useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 	const sync = syncSession(controller); useSyncExternalStore(sync.subscribe, sync.getSnapshot);
+	const backAction = useRef<() => Promise<void>>(async () => {});
+	useEffect(() => {
+		const owners = new Set<object>();
+		const begin = (event: CompositionEvent) => { if (event.target) { owners.add(event.target); controller.beginUIComposition(event.target); } };
+		const end = (event: Event) => { if (event.target) { owners.delete(event.target); controller.endUIComposition(event.target); } };
+		document.addEventListener('compositionstart', begin, true); document.addEventListener('compositionend', end, true); document.addEventListener('focusout', end, true);
+		return () => { document.removeEventListener('compositionstart', begin, true); document.removeEventListener('compositionend', end, true); document.removeEventListener('focusout', end, true); for (const owner of owners) controller.endUIComposition(owner); };
+	}, [controller]);
+	useEffect(() => {
+		let disposed = false; let remove: (() => Promise<void>) | undefined;
+		void installAndroidBackHandler(() => backAction.current()).then(handler => { if (disposed) void handler(); else remove = handler; }).catch(() => {});
+		return () => { disposed = true; if (remove) void remove(); };
+	}, []);
 	useEffect(() => {
 		let timer: ReturnType<typeof setTimeout> | undefined; let attempted = -1; let disposed = false;
 		const queue = () => {
 			if (disposed || !sync.unlocked || sync.busy || !sync.hasPendingLocal || attempted === controller.contentVersion) return;
 			clearTimeout(timer);
 			timer = setTimeout(() => {
-				if (disposed || sync.busy || !sync.unlocked) return;
+				if (disposed || sync.busy || !sync.unlocked || controller.isComposing) return;
 				attempted = controller.contentVersion;
-				void sync.queueLocal().then(async () => { const bridge = cloudBridge(); if (controller.syncState?.autoSync && controller.syncState.outbox.length && bridge?.scheduleTransfer) await cloudValue(bridge.scheduleTransfer()); }).catch(() => {});
+				void sync.queueLocal().then(async () => { const bridge = cloudBridge(); if (document.visibilityState === 'hidden' && controller.syncState?.autoSync && controller.syncState.outbox.length && bridge?.scheduleTransfer) await cloudValue(bridge.scheduleTransfer()); }).catch(() => {});
 			}, 1000);
 		};
 		const offController = controller.subscribe(queue); const offSync = sync.subscribe(queue); queue();
@@ -95,7 +109,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 		return () => { for (const pane of panes) pane.inert = false; document.removeEventListener('keydown', tab); if (previous?.getClientRects().length) previous.focus(); };
 	}, [sidebar, modal]);
 	const updatePreferences = (fields: Partial<Preferences>) => controller.change({ ...controller.vault, preferences: { ...controller.vault.preferences, ...fields } });
-	const headings = useMemo(() => noteDocument && p.toc ? parseMarkdown(noteDocument.source).children.filter(node => node.type === 'heading').map(node => ({ text: words(node), depth: node.type === 'heading' ? node.depth : 1, offset: node.position?.start.offset ?? 0 })) : [], [noteDocument?.source, p.toc]);
+	const headings = useMemo(() => modal?.kind === 'outline' && noteDocument && p.toc ? parseMarkdown(noteDocument.source).children.filter(node => node.type === 'heading').map(node => ({ text: words(node), depth: node.type === 'heading' ? node.depth : 1, offset: node.position?.start.offset ?? 0 })) : [], [noteDocument?.source, p.toc, modal?.kind]);
 	const assets = useMemo(() => new Map(vault.attachments.map(attachment => [attachment.id, { url: URL.createObjectURL(new Blob([new Uint8Array(fromBase64(attachment.data))], { type: attachment.mime })), mime: attachment.mime }])), [vault.attachments]);
 	useEffect(() => () => { for (const asset of assets.values()) URL.revokeObjectURL(asset.url); }, [assets]);
 	useEffect(() => {
@@ -231,6 +245,17 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 	const saveLabel = controller.status === 'saved' ? `已保存到本地 · ${controller.storage.kind}` : controller.status === 'error' ? '保存失败 · 请导出备份' : controller.status === 'saving' ? '正在保存…' : '本地修改待保存';
 	const historyEntry = current?.history.find(entry => entry.id === historyId);
 	const viewedAttachment = modal?.kind === 'attachment' ? vault.attachments.find(item => item.id === modal.id) : undefined;
+	backAction.current = async () => {
+		if (busy || controller.isComposing) return;
+		await controller.requireDurable();
+		if (sync.unlocked && sync.hasPendingLocal && !sync.busy) await sync.queueLocal();
+		const top = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')].at(-1);
+		if (top) { top.dispatchEvent(new Event('cancel', { cancelable: true })); return; }
+		if (sidebar) { setSidebar(false); return; }
+		if (query) { setQuery(''); return; }
+		if (mobileView === 'editor' && current) { setMobileView('notes'); return; }
+		await minimizeAndroidApp();
+	};
 	const feedback = <>{(error || controller.error) && <div role="alert" className="problem">{error || controller.error}<button onClick={() => run(() => exportData('backup'))}>导出当前备份</button>{error && <button onClick={() => setError('')}>关闭提示</button>}</div>}
 			{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')}>×</button></div>}{controller.syncRecoveryNote && <div className="notice" role="status">{controller.syncRecoveryNote}<button onClick={() => { activateFolder(null, true); controller.dismissSyncRecovery(); }}>查看回收站</button><button aria-label="关闭同步恢复提示" onClick={() => controller.dismissSyncRecovery()}>×</button></div>}{busy && <div role="status" className="notice">正在处理文件，请稍候…</div>}</>;
 	return <DialogErrorContext.Provider value={error || controller.error}><div className={`library-shell ${!p.showSidebar ? 'sidebar-hidden' : ''} ${!p.showNoteList ? 'list-hidden' : ''} mobile-${mobileView}`} style={{ '--sidebar-width': `${p.sidebarWidth}px`, '--list-width': `${p.noteListWidth}px` } as React.CSSProperties}>
@@ -244,7 +269,7 @@ export function LibraryApp({ controller }: { controller: LibraryController }) {
 			<FolderTree vault={vault} selected={trash ? null : folderId} onSelect={activateFolder} onManage={id => setModal({ kind: 'folder', id })} onDrop={drop} />
 			<button className={`all-notes ${trash ? 'selected' : ''}`} onClick={() => activateFolder(null, true)}>{t('回收站', 'Trash')}<small>{vault.notes.filter(note => note.deletedAt).length}</small></button>
 			<div className="nav-heading"><span>{t('标签', 'Tags')}</span><button aria-label="管理标签" onClick={() => setModal({ kind: 'tags' })}>⋯</button></div><nav className="tag-list" aria-label="笔记标签">{tags.length ? tags.map(([name, count]) => <button key={name} className={tag === name ? 'selected' : ''} aria-pressed={tag === name} onClick={() => activateTag(name)}><span># {name}</span><small>{count}</small></button>) : <p className="sidebar-hint">在笔记“信息”中添加标签</p>}</nav></div>
-			<div className="library-storage"><span className="status-dot" />{controller.storage.kind} · {t('本地笔记库', 'Local library')}<small>{sync.busy ? t('正在同步', 'Synchronizing') : sync.status === 'error' ? t('同步失败，请查看设置', 'Sync failed; see settings') : controller.syncState ? sync.unlocked ? t('加密同步已解锁', 'Encrypted sync unlocked') : t('加密同步已锁定', 'Encrypted sync locked') : t('云同步未连接', 'Cloud not connected')}</small></div>
+			<div className="library-storage"><span className="status-dot" />{controller.storage.kind} · {t('本地笔记库', 'Local library')}<small>{sync.busy ? t('正在同步', 'Synchronizing') : sync.status === 'waiting' ? t('远端更新待应用', 'Remote updates pending') : sync.status === 'error' ? t('同步失败，请查看设置', 'Sync failed; see settings') : controller.syncState ? sync.unlocked ? t('加密同步已解锁', 'Encrypted sync unlocked') : t('加密同步已锁定', 'Encrypted sync locked') : t('云同步未连接', 'Cloud not connected')}</small></div>
 		</aside>
 		<PaneResizer label="调整文件夹栏宽度" property="--sidebar-width" value={p.sidebarWidth} min={180} max={340} initial={230} onChange={sidebarWidth => updatePreferences({ sidebarWidth })} />
 		<NoteList feedback={feedback} onReturn={() => { if (!noteDocument?.isComposing) setMobileView('editor'); }} notes={notes} selectedId={selectedId} title={listTitle} preferences={p} query={query} searchRef={searchInput} onQuery={setQuery} checked={checked} onChecked={setChecked} onSelect={select} onCreate={addNote} onCreateTodo={() => newEntry('todo')} onToggleTodo={note => run(() => controller.toggleTodo(note.id))} onMenu={note => setModal({ kind: 'note-menu', id: note.id })} onNavigation={() => setSidebar(true)} onMove={ids => setModal({ kind: 'move', ids })} onTrash={trashNotes} trash={trash} onEmptyTrash={() => { setPermanentConfirmation(''); setModal({ kind: 'empty-trash' }); }} onSort={sort => updatePreferences({ sort })} />

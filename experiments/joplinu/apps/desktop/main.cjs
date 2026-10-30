@@ -1,7 +1,7 @@
-const { app, BrowserWindow, Menu, net, protocol, session, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, net, protocol, session, ipcMain, safeStorage, shell } = require('electron');
 const { join, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { resolveAsset } = require('./assets.cjs');
+const { resolveAsset, externalWebUrl } = require('./assets.cjs');
 const { VaultDatabase } = require('./database.cjs');
 const { CloudHost } = require('./cloud.bundle.cjs');
 const { mkdirSync } = require('node:fs');
@@ -20,9 +20,10 @@ function createWindow() {
 		backgroundColor: '#f1f5f1',
 		webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, preload: join(__dirname, 'preload.cjs') },
 	});
-	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+	const external = url => { const target = externalWebUrl(url); if (target) void shell.openExternal(target).catch(() => {}); };
+	window.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
 	window.webContents.on('will-navigate', (event, url) => {
-		if (new URL(url).origin !== new URL('joplinu://app/').origin || !url.startsWith('joplinu://app/')) event.preventDefault();
+		if (!url.startsWith('joplinu://app/')) { event.preventDefault(); external(url); }
 	});
 	window.webContents.on('will-attach-webview', event => event.preventDefault());
 	void window.loadURL('joplinu://app/');

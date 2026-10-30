@@ -5,6 +5,7 @@ import { checkVault } from '../../../packages/library/src/transfer';
 import { Dialog } from './Dialog';
 import { CloudSettings } from './CloudSettings';
 import { SyncSettings } from './SyncSettings';
+import { version } from '../../../package.json';
 
 const sections = [
 	['general', '☷', '常规', 'General', '语言与日期格式设置'],
@@ -36,6 +37,7 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 	const [applyPreferences, setApplyPreferences] = useState(false);
 	const [result, setResult] = useState('');
 	const [busy, setBusy] = useState(false);
+	const [licenses, setLicenses] = useState('');
 	const p = controller.vault.preferences;
 	const english = p.language === 'en-US';
 	const update = (change: Partial<Preferences>) => run(() => {
@@ -94,6 +96,8 @@ export function Settings({ controller, onClose, onExport, onImport, onManageAtta
 					<p>每篇最多保留 1000 个版本。下一次创建版本时清理超期历史；关闭自动历史不会删除已有版本。完整备份包括历史和回收站。</p>
 				</>}
 				{section === 'tools' && <>
+					<p className="hint">JoplinU {version} · 开发版 · AGPL-3.0-or-later</p>
+					<button onClick={() => run(async () => { const response = await fetch(new URL('THIRD_PARTY_NOTICES.txt', location.href)); if (!response.ok) throw new Error('无法读取内置许可证'); const text = await response.text(); if (!text.startsWith('JoplinU third-party notices')) throw new Error('内置许可证尚未生成，请重新构建'); setLicenses(text); })}>查看开源许可证</button>{licenses && <textarea aria-label="开源许可证全文" readOnly value={licenses} style={{ width: '100%', minHeight: '18rem', fontFamily: 'monospace' }} />}
 					<div className="button-row"><button className="primary" disabled={busy} onClick={() => run(async () => { setBusy(true); try { const database = await controller.storage.check(); if (database !== 'ok' && controller.storage.kind === 'SQLite') throw new Error('SQLite 完整性检查失败'); setResult(await checkVault(controller.vault)); controller.log('本地完整性检查通过'); } finally { setBusy(false); } })}>完整性检查</button><button onClick={() => run(async () => { await controller.flush(); setResult(controller.status === 'saved' ? '本地保存完成' : controller.error); })}>重试本地保存</button></div>
 					{result && <p role="status">{result}</p>}
 					<div className="button-row"><button onClick={() => exporting('settings')}>导出配置档案</button><button onClick={() => onImport('settings')}>导入配置档案</button><button onClick={() => exporting('logs')}>导出操作日志</button></div>

@@ -3,7 +3,7 @@ import { fromBase64, toBase64, sha256 } from '../../core/src/bytes';
 import { createSyncKey, unlockSyncKey, encryptSyncObject, decryptSyncObject, validateManifest, type SyncKeyManifest } from '../../crypto/src/sync';
 import type { LibraryController } from '../../library/src/controller';
 import type { ObjectStorageProvider } from '../../storage/src/index';
-import { manifestPath, rootPath, MissingSyncDependencies, type SyncUpdate, type QueuedObject } from './replica';
+import { manifestPath, rootPath, MissingSyncDependencies, LocalEditingInProgress, type SyncUpdate, type QueuedObject } from './replica';
 import { decodeUpdate, writeSnapshot, readSnapshot } from './snapshot';
 import { migrateRepository } from './migrate';
 import { rekeyRepository } from './rekey';
@@ -12,7 +12,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 export function recoveryCode(manifest: SyncKeyManifest) { return `${manifest.vault}.${manifest.key}`; }
-export type SyncStatus = 'locked' | 'ready' | 'syncing' | 'error' | 'synced';
+export type SyncStatus = 'locked' | 'ready' | 'syncing' | 'waiting' | 'error' | 'synced';
 
 /** Foreground document merge engine. Providers see authenticated encrypted immutable objects only. */
 export class SyncEngine {
@@ -23,6 +23,7 @@ export class SyncEngine {
 	status: SyncStatus = 'locked';
 	error = '';
 	progress = '';
+	pendingRemoteCount = 0;
 	private version = 0;
 	private listeners = new Set<() => void>();
 	constructor(readonly controller: LibraryController) {}
@@ -36,7 +37,7 @@ export class SyncEngine {
 		if (this.running) throw new Error('同步操作正在进行');
 		this.running = true; this.error = ''; this.emit();
 		try { return await action(); }
-		catch (error) { this.status = 'error'; this.error = error instanceof Error ? error.message : '同步失败'; throw error; }
+		catch (error) { this.status = error instanceof LocalEditingInProgress ? 'waiting' : 'error'; this.error = error instanceof Error ? error.message : '同步失败'; throw error; }
 		finally { this.running = false; this.progress = ''; this.emit(); }
 	}
 	async create(password: string) {
@@ -105,7 +106,8 @@ export class SyncEngine {
 			known[path] = hash;
 			}
 			const apply = () => this.controller.applySyncUpdates([...documents].map(([target, document]) => ({ target, update: toBase64(Y.encodeStateAsUpdate(document)) })), known);
-			if (documents.size) try { await apply(); } catch (error) {
+			if (documents.size) this.pendingRemoteCount = Object.keys(known).filter(path => !state.known[path]).length;
+			if (documents.size) try { await apply(); this.pendingRemoteCount = 0; } catch (error) {
 				if (!(error instanceof MissingSyncDependencies)) throw error;
 				// A long-offline device can edit a note removed before a snapshot.
 				// Preserve all original logs and recover its missing body dependencies.
@@ -116,6 +118,7 @@ export class SyncEngine {
 					accept(decodeUpdate(await decryptSyncObject(this.key!, path, bytes))); known[path] = hash;
 				}
 				await apply();
+				this.pendingRemoteCount = 0;
 			}
 		} finally { for (const document of documents.values()) document.destroy(); }
 	}
